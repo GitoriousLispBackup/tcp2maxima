@@ -99,7 +99,7 @@ class MaximaSupervisor(threading.Thread):
     timeout = 10 
     
     def __init__(self):
-        threading.Thread.__init__(self);
+        threading.Thread.__init__(self)
         self.workers = [MaximaWorker(i, self) for i in range(5)]
         self.queries = queue.Queue()        # The queue emptied by the maxima worker threads
         self.times = {}                     # Calculation times of the threads
@@ -142,6 +142,9 @@ class MaximaSupervisor(threading.Thread):
     def quit(self):
         self.stop.set()
 
+# Keep this module executable for testing reasons
+# If you try to run the server, this is not the 
+# file to run!
 def main():
     supervisor = MaximaSupervisor()
     supervisor.start()

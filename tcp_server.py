@@ -17,50 +17,40 @@
 #    along with tcp2maxima.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from twisted.internet import protocol, reactor, defer, utils
-from twisted.protocols import basic
-from twisted.internet.threads import deferToThread
-import subprocess as sp
+# TODO: Make this work in one way or another.
 
-class MaximaInteraction():
+import socketserver
+from maxima_threads import MaximaSupervisor
 
-    def __init__(self):
-        self.command = '/usr/bin/maxima'
-        self.options = ['--very-quiet']
-        self.process = sp.Popen([self.command] + self.options, stdin=sp.PIPE, stdout=sp.PIPE)
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    pass
 
-    # This is code that shouldn't be run in async mode since interaction with maxima
-    # might take ages.
-    def eval_sync(self, problem):
-        process.stdin.write(problem)
-        solution = process.stdout.readline()
-        return solution
-        
-    def evaluate(self, maxima_sting):
-#        problem = bytes(maxima_string, 'UTF-8')
-        d = deferToThread(self.eval_sync, maxima_string)
-        return d
+class RequestHandler(socketserver.BaseRequestHandler):
 
-class CalcProtocol(basic.LineReceiver):
-    def lineReceived(self, user):
-        d = self.factory.evaluate(user)
+    # This doesn't work at the moment. I guess it's because it's 
+    # was a stupid idea in the first place which abuses threads
+    # in a way you are not supposed to!
+    def handle(self):
+        query = str(self.request.recv(1024), 'UTF-8')
+        # Yes, that's the stupid part
+        callback = lambda x: self.request.sendall(bytes(x, 'UTF-8'))
+        self.server.maxima.request(query, callback)
 
-        def onError(err):
-            return 'Internal error in server'
-        d.addErrback(onError)
 
-        def writeResponse(message):
-            self.transport.write(message + '\r\n')
+# Should not be executed in the end
+# but I have to test it, aight?
+def main():
+    host, port = "localhost", 9666 # My favourite port of the beast
+    supervisor = MaximaSupervisor()
+    supervisor.start()
+    server = ThreadedTCPServer((host, port), RequestHandler)
+    # Ugly hack to check whether this works 
+    server.maxima = supervisor
+    server.serve_forever()
 
-        d.addCallback(writeResponse)
+    supervisor.quit()
+    supervisor.join()
 
-class CalcFactory(protocol.ServerFactory):
-    protocol = CalcProtocol
-    maxima = MaximaInteraction()
 
-    def evaluate(self, maxima_string):
-        return self.maxima.evaluate(maxima_string)
-
-reactor.listenTCP(1079, CalcFactory())
-print("Running Server")
-reactor.run()
+if __name__ == "__main__":
+    main()
