@@ -17,10 +17,9 @@
 #    along with tcp2maxima.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-# TODO: Make this work in one way or another.
-
 import socketserver
-from maxima_threads import MaximaSupervisor
+import threading
+from maxima_threads import MaximaSupervisor, RequestController
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
@@ -33,9 +32,14 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def handle(self):
         query = str(self.request.recv(1024), 'UTF-8')
         # Yes, that's the stupid part
-        callback = lambda x: self.request.sendall(bytes(x, 'UTF-8'))
-        self.server.maxima.request(query, callback)
-
+        controller = RequestController() 
+        self.server.maxima.request(query, controller)
+        
+        # Wait for a Maxima worker thread to process our input 
+        while not controller.is_ready():
+            pass
+        
+        self.request.sendall(bytes(controller.get_reply(), 'UTF-8'))
 
 # Should not be executed in the end
 # but I have to test it, aight?

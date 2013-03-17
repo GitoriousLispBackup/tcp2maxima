@@ -47,22 +47,23 @@ class MaximaWorker(threading.Thread):
          
     def run(self):
         while not self.stop.isSet():
-            problem = self.sv.queries.get()
-            prob_string = problem[0]
-            callback = problem[1]
+            query = self.sv.queries.get()
+            request = query[0]
+            # The RequestController
+            response = query[1]
             
             # Add a semicolon at the line end if the user
             # didn't provide one
             # TODO: We need a lot more sanity checks 
             # on the input here!
-            if prob_string[len(prob_string)-1] != ';':
-                prob_string = prob_string + ';'
+            if request[len(request)-1] != ';':
+                request = request + ';'
             
             # We record the time, when we start working
             self.sv.add_time(self.name, time.time())
             
             # Start processing stuff with maxima
-            self.process.stdin.write(bytes(prob_string, "UTF-8"))                
+            self.process.stdin.write(bytes(request, "UTF-8"))                
             solution = self.process.stdout.readline()
 
             # We solved the problem, so remove the time
@@ -71,9 +72,13 @@ class MaximaWorker(threading.Thread):
             # Send the solution from maxima to the callback function
             solution = str(solution, "UTF-8").strip()
             if solution:
-                callback(solution)
+                response.set_reply(solution)
             else:
-                callback("timeout")
+                response.set_reply("timeout")
+            # Set the event to signal the server that we are ready.
+            response.set_ready()
+            
+
         log.debug("Worker " + str(self.name) + " exits")
 
     def kill_worker(self):
@@ -93,6 +98,7 @@ class MaximaWorker(threading.Thread):
 
 
 class MaximaSupervisor(threading.Thread):
+    """ Class which controlls the Maxima worker threads. """
     # Seconds after which to kill a worker
     # TODO: This should go in a proper config
     # file or something.
@@ -101,7 +107,13 @@ class MaximaSupervisor(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self.workers = [MaximaWorker(i, self) for i in range(5)]
-        self.queries = queue.Queue()        # The queue emptied by the maxima worker threads
+
+        # The queue that holds the maxima queries which are sent to 
+        # Maxima by the worker threads.
+        # A query is a 2-tuple consisting of:
+        # 0. The actual string that's sent to maxima
+        # 1. A RequestController object used to reply to the TCP server
+        self.queries = queue.Queue()        
         self.times = {}                     # Calculation times of the threads
         self.times_lock = threading.Lock()  # Here we need a lock for this
         self.stop = threading.Event()
@@ -142,20 +154,30 @@ class MaximaSupervisor(threading.Thread):
     def quit(self):
         self.stop.set()
 
-# Keep this module executable for testing reasons
-# If you try to run the server, this is not the 
-# file to run!
-def main():
-    supervisor = MaximaSupervisor()
-    supervisor.start()
-    while True:
-        query = input()
-        supervisor.request(query, print)
 
-    supervisor.quit()
-    supervisor.join()
+class RequestController:
+    """ RequestController are used to exchange data
+    between the TCP server and the maxima worker threads
 
+    Objects are not initialized here but by the TCP server
+    but it's more logical to keep this class here...
+    """
+    def __init__(self):
+        # Event that is set by the worker as soon as
+        # the Maxima output is ready
+        self.ready = threading.Event()
+        # Here we store the maxima output.
+        self.reply = ''
 
+    def set_ready(self):
+        self.ready.set()
 
-if __name__=='__main__':
-    main()
+    def is_ready(self):
+        return self.ready.isSet()
+
+    def set_reply(self, reply):
+        self.reply = reply
+
+    def get_reply(self):
+        return self.reply
+
