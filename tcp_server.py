@@ -43,6 +43,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
 # Should not be executed in the end
 # but I have to test it, aight?
+# WON'T WORK ANYMORE!
+# DELETE SOON!
 def main():
     host, port = "localhost", 9666 # My favourite port of the beast
     supervisor = MaximaSupervisor()

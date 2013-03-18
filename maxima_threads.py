@@ -40,10 +40,13 @@ class MaximaWorker(threading.Thread):
         threading.Thread.__init__(self);
         self.name = name
         self.sv = sv
-        self.maxima = '/usr/bin/maxima'
         self.options = ['--very-quiet']
-        self.process = sp.Popen([self.maxima] + self.options, stdin=sp.PIPE, stdout=sp.PIPE)
+        self.process = sp.Popen([sv.executable] + self.options, stdin=sp.PIPE, stdout=sp.PIPE)
         self.stop = threading.Event()
+        
+        # Initialize maxima
+        self.process.stdin.write(sv.maxima_init)
+
          
     def run(self):
         while not self.stop.isSet():
@@ -95,6 +98,7 @@ class MaximaWorker(threading.Thread):
     def _reset_maxima(self):
         self.process.stdin.write("reset();")
         self.process.stdin.write("kill(all);")
+        self.process.stdin.write(sv.maxima_init)
 
 
 class MaximaSupervisor(threading.Thread):
@@ -104,10 +108,13 @@ class MaximaSupervisor(threading.Thread):
     # file or something.
     timeout = 10 
     
-    def __init__(self):
+    def __init__(self, executable, maxima_init):
         threading.Thread.__init__(self)
         self.workers = [MaximaWorker(i, self) for i in range(5)]
-
+        # Configuration for the workers
+        self.executable = executable # Path of the Maxima executable
+        self.maxima_init = maxima_init # Multiline init string for Maxima
+        
         # The queue that holds the maxima queries which are sent to 
         # Maxima by the worker threads.
         # A query is a 2-tuple consisting of:
