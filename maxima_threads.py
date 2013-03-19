@@ -41,11 +41,11 @@ class MaximaWorker(threading.Thread):
         self.name = name
         self.sv = sv
         self.options = ['--very-quiet']
-        self.process = sp.Popen([sv.executable] + self.options, stdin=sp.PIPE, stdout=sp.PIPE)
+        self.process = sp.Popen([sv.path] + self.options, stdin=sp.PIPE, stdout=sp.PIPE)
         self.stop = threading.Event()
         
         # Initialize maxima
-        self.process.stdin.write(sv.maxima_init)
+        self.process.stdin.write(bytes(sv.maxima_init, "UTF-8"))
 
          
     def run(self):
@@ -108,12 +108,12 @@ class MaximaSupervisor(threading.Thread):
     # file or something.
     timeout = 10 
     
-    def __init__(self, executable, maxima_init):
+    def __init__(self, path, maxima_init):
         threading.Thread.__init__(self)
-        self.workers = [MaximaWorker(i, self) for i in range(5)]
+
         # Configuration for the workers
-        self.executable = executable # Path of the Maxima executable
         self.maxima_init = maxima_init # Multiline init string for Maxima
+        self.path = path # Path of the Maxima executable
         
         # The queue that holds the maxima queries which are sent to 
         # Maxima by the worker threads.
@@ -124,6 +124,7 @@ class MaximaSupervisor(threading.Thread):
         self.times = {}                     # Calculation times of the threads
         self.times_lock = threading.Lock()  # Here we need a lock for this
         self.stop = threading.Event()
+        self.workers = [MaximaWorker(i, self) for i in range(5)]
         for worker in self.workers:
             worker.setDaemon(True) 
             worker.start() 

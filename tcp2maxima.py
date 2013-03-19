@@ -47,7 +47,7 @@ class App:
 
         # Initialize tcp server
         srvcfg = config['Server']
-        host, port = srvcfg['address'], srvcfg['port']
+        host, port = srvcfg['address'], int(srvcfg['port'])
         self.server = ThreadedTCPServer((host, port), RequestHandler)
         # This is a ugly hack...
         # Of course this should go in the initializer
@@ -56,7 +56,7 @@ class App:
 
     # This handler should handle SIGINT and SIGTERM
     # to gracefully exit the threads.
-    def signal_handler(signal, frame):
+    def signal_handler(self, signal, frame):
         print('Trying to exit gracefully...')
         self.supervisor.quit()
         self.supervisor.join()
