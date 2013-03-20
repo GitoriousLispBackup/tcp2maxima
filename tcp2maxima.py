@@ -43,10 +43,12 @@ class App:
     def __init__(self, config):
         # Initialize Maxima supervisor
         mxcfg = config['Maxima']
-        self.supervisor = MaximaSupervisor(mxcfg['executable'], mxcfg['init'])
+        # TODO: Send the whole maxima config over
+        self.supervisor = MaximaSupervisor(mxcfg['executable'], mxcfg['init'], int(mxcfg['timeout']))
 
         # Initialize tcp server
         srvcfg = config['Server']
+        # TODO: Send the whole server conf over
         host, port = srvcfg['address'], int(srvcfg['port'])
         self.server = ThreadedTCPServer((host, port), RequestHandler)
         # This is a ugly hack...

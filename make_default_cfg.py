@@ -18,6 +18,7 @@ config.set('Server', 'port', '9666')
 # Maxima conf
 config.add_section('Maxima')
 config.set('Maxima', 'executable',  '/usr/bin/maxima')
+config.set('Maxima', 'timeout', '10')
 config.set('Maxima', 'init', '''reset()$
 kill(all)$
 display2d:false$
