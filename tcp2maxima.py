@@ -79,7 +79,6 @@ class App:
 
     # Start the Server
     def run(self):
-        logger.debug("Starting Maxima supervisor")
         self.supervisor.start()
         logger.info("Starting TCP server on " + self.host + " listening to port " + str(self.port))
         self.server.serve_forever()

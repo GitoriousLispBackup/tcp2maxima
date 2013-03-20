@@ -52,7 +52,9 @@ class MaximaWorker(threading.Thread):
         """
         logger.debug("Maxima worker " + str(self.name) + " starts processing queries")
         while not self.stop.isSet():
+            # TODO: It queue is empty it blocks here, so we can't really exit the worker.
             query = self.sv.queries.get() # Pop a element from the queue.
+                
             request = query[0] # The sting we want to send to maxima
             response = query[1] # The RequestController to send back the response
             
@@ -80,7 +82,8 @@ class MaximaWorker(threading.Thread):
                 response.set_reply("timeout")
             # Set the event to signal the server that we are ready.
             response.set_ready()
-            # TODO: We should tell the queue that we are done processing the element.
+            # Tell the queue we're done. 
+            self.sv.queries.task_done()
 
         # TODO: This leaves some weird sbcl zombie alive,
         # how do we kill that m****f****er????
@@ -89,11 +92,17 @@ class MaximaWorker(threading.Thread):
         del self.process 
         logger.info("Worker " + str(self.name) + " exits")
 
-    def kill_worker(self):
+    def quit_worker(self):
         """ Sets the event to stop the thread """
+        self.stop.set()
+
+    def kill_worker(self):
+        """ Quits worker thread but kills the Maxima process first.
+        This is necessary if the Maxima times out.
+        """
         logger.debug("Worker " + str(self.name) + " will be (ex)terminated")
         self.process.terminate()
-        self.stop.set()
+        self.quit_worker()
 
     def _reset_maxima(self):
         # Reset and re-init the maxima process
@@ -101,7 +110,6 @@ class MaximaWorker(threading.Thread):
         self.process.stdin.write("reset();")
         self.process.stdin.write("kill(all);")
         self.process.stdin.write(sv.cfg['init'])
-
 
 class MaximaSupervisor(threading.Thread):
     """ Class which controlls the Maxima worker threads. """
@@ -141,18 +149,29 @@ class MaximaSupervisor(threading.Thread):
         self.times_lock.release()
             
     def run(self):
+        logger.info("Starting Maxima supervisor.")
         while not self.stop.isSet(): 
-
-            time.sleep(int(self.cfg['timeout']))
+            time.sleep(2) 
             # Check threads sanity
-            for worker in self.workers:
+            for i in range(len(self.workers)):
+                worker = self.workers[i]
                 self.times_lock.acquire()
                 if worker.name in self.times.keys() \
                         and time.time() - self.times[worker.name] > int(self.cfg['timeout']):
                     logger.warn("Maxima worker " + str(worker.name) + " timed out.")
                     worker.kill_worker()
-                    # TODO: Start new worker
+                    del worker
+                    self.workers[i] = MaximaWorker(i, self)
                 self.times_lock.release()
+        # We want to quit the superviser. 
+        # Wait for the queue to be emptied
+        logger.info("Quitting Maxima supervisor.")
+        logger.debug("Waiting for the querie queue to be emtpied.")
+        self.queries.join()
+        logger.debug("Quitting the Maxima workers.")
+        for worker in self.workers:
+            worker.quit_worker()
+            # worker.join() <- Would be nice, but doesn't work because of the blocking get on the Queue
                 
     def request(self, query, callback):
         self.queries.put([query, callback]) 
