@@ -21,10 +21,11 @@ import configparser
 import os
 import signal
 import sys
+import logging
 
-from maxima_threads import MaximaSupervisor, RequestController
-from tcp_server import ThreadedTCPServer, RequestHandler
-
+##########################
+### Load configuration ###
+##########################
 config = configparser.ConfigParser()
 # Read the default configuration 
 # if this doesn't exist it's not good.
@@ -35,22 +36,33 @@ alt_path = ['/etc/tcp2maxima.cfg']
 alt_path.append('/etc/tcp2maximarc')
 alt_path.append(os.path.expanduser('~/.tcp2maxima.cfg'))
 alt_path.append(os.path.expanduser('~/.tcp2maximarc'))
-
 config.read(alt_path)
 
-class App:
+##########################
+### Configure logger   ###
+##########################
+logging.basicConfig(level=config['Logging']['level'])
+logger = logging.getLogger("tcp2maxima")
 
+
+# These depend on the logger we just configured
+from maxima_threads import MaximaSupervisor, RequestController
+from tcp_server import ThreadedTCPServer, RequestHandler
+
+
+class App:
     def __init__(self, config):
+        logger.info("Initializing application.")
         # Initialize Maxima supervisor
         mxcfg = config['Maxima']
         # TODO: Send the whole maxima config over
-        self.supervisor = MaximaSupervisor(mxcfg['executable'], mxcfg['init'], int(mxcfg['timeout']))
+        self.supervisor = MaximaSupervisor(mxcfg)
 
         # Initialize tcp server
         srvcfg = config['Server']
         # TODO: Send the whole server conf over
-        host, port = srvcfg['address'], int(srvcfg['port'])
-        self.server = ThreadedTCPServer((host, port), RequestHandler)
+        self.host, self.port = srvcfg['address'], int(srvcfg['port'])
+        self.server = ThreadedTCPServer((self.host, self.port), RequestHandler)
         # This is a ugly hack...
         # Of course this should go in the initializer
         # of this class. But sry, don't feel like it ATM.
@@ -59,6 +71,7 @@ class App:
     # This handler should handle SIGINT and SIGTERM
     # to gracefully exit the threads.
     def signal_handler(self, signal, frame):
+        logging.warn("Received SIGTERM or SIGINT, trying to exit.")
         print('Trying to exit gracefully...')
         self.supervisor.quit()
         self.supervisor.join()
@@ -66,7 +79,9 @@ class App:
 
     # Start the Server
     def run(self):
+        logger.debug("Starting Maxima supervisor")
         self.supervisor.start()
+        logger.info("Starting TCP server on " + self.host + " listening to port " + str(self.port))
         self.server.serve_forever()
 
 if __name__ == "__main__":

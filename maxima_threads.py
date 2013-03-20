@@ -26,10 +26,7 @@ import time
 # Get a logger
 # TODO: Still have to figure out how to connect this to the main
 # logger when I use this as a module
-logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s %(process)d/%(threadName)s: %(message)s")
-logging.basicConfig(level=logging.DEBUG)
-log = logging.getLogger(__name__)
-
+logger = logging.getLogger("tcp2maxima")
 
 class MaximaWorker(threading.Thread):
     """ A thread that controls a maxima instance and sends queries to it. """
@@ -38,20 +35,22 @@ class MaximaWorker(threading.Thread):
         """Initializer. The supervisor sv owns the queue we use for queries.
         that's why we need it, too.
         """
+        logger.debug("Starting Maxima worker thread " + str(name) + ".")
         threading.Thread.__init__(self);
         self.name = name # Name of the thread, usually a integer
         self.sv = sv # The supervisor of the threads
         self.options = ['--very-quiet'] # We don't want Maxima to report the version at startup
-        self.process = sp.Popen([sv.path] + self.options, stdin=sp.PIPE, stdout=sp.PIPE)
+        self.process = sp.Popen([sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE)
         self.stop = threading.Event() # A event we use to stop our maxima worker
         
         # Initialize maxima with the init string form the configuration
-        self.process.stdin.write(bytes(sv.maxima_init, "UTF-8"))
+        self.process.stdin.write(bytes(sv.cfg['init'], "UTF-8"))
          
     def run(self):
         """ Starts the loop which pops elements off the queue. 
         Runs until the stop event is sent from kill_worker().
         """
+        logger.debug("Maxima worker " + str(self.name) + " starts processing queries")
         while not self.stop.isSet():
             query = self.sv.queries.get() # Pop a element from the queue.
             request = query[0] # The sting we want to send to maxima
@@ -83,16 +82,16 @@ class MaximaWorker(threading.Thread):
             response.set_ready()
             # TODO: We should tell the queue that we are done processing the element.
 
-        log.debug("Worker " + str(self.name) + " will be (ex)terminated")            
         # TODO: This leaves some weird sbcl zombie alive,
         # how do we kill that m****f****er????
         self.process.terminate()
         # we need to actively delete the process object to really kill the process
         del self.process 
-        log.debug("Worker " + str(self.name) + " exits")
+        logger.info("Worker " + str(self.name) + " exits")
 
     def kill_worker(self):
         """ Sets the event to stop the thread """
+        logger.debug("Worker " + str(self.name) + " will be (ex)terminated")
         self.process.terminate()
         self.stop.set()
 
@@ -101,22 +100,17 @@ class MaximaWorker(threading.Thread):
         # TODO: Check what we really need here.
         self.process.stdin.write("reset();")
         self.process.stdin.write("kill(all);")
-        self.process.stdin.write(sv.maxima_init)
+        self.process.stdin.write(sv.cfg['init'])
 
 
 class MaximaSupervisor(threading.Thread):
     """ Class which controlls the Maxima worker threads. """
-    # Seconds after which to kill a worker
-    # TODO: This should go in a proper config
-    # file or something.
-    timeout = 10 
     
-    def __init__(self, path, maxima_init, timeout):
+    def __init__(self, cfg):
         threading.Thread.__init__(self)
 
         # Configuration for the workers
-        self.maxima_init = maxima_init # Multiline init string for Maxima
-        self.path = path # Path of the Maxima executable
+        self.cfg = cfg # Multiline init string for Maxima
         
         # The queue that holds the maxima queries which are sent to 
         # Maxima by the worker threads.
@@ -124,11 +118,10 @@ class MaximaSupervisor(threading.Thread):
         # 0. The actual string that's sent to maxima
         # 1. A RequestController object used to reply to the TCP server
         self.queries = queue.Queue()        
-        self.timeout = timeout # The timout after which the process gets killed
         self.times = {} # Calculation times of the threads
         self.times_lock = threading.Lock() # Here we need a lock for this
         self.stop = threading.Event()
-        self.workers = [MaximaWorker(i, self) for i in range(5)]
+        self.workers = [MaximaWorker(i, self) for i in range(int(cfg['threads']))]
         for worker in self.workers:
             worker.setDaemon(True) 
             worker.start() 
@@ -150,12 +143,13 @@ class MaximaSupervisor(threading.Thread):
     def run(self):
         while not self.stop.isSet(): 
 
-            time.sleep(self.timeout)
+            time.sleep(int(self.cfg['timeout']))
             # Check threads sanity
             for worker in self.workers:
                 self.times_lock.acquire()
                 if worker.name in self.times.keys() \
-                        and time.time() - self.times[worker.name] > self.timeout:
+                        and time.time() - self.times[worker.name] > int(self.cfg['timeout']):
+                    logger.warn("Maxima worker " + str(worker.name) + " timed out.")
                     worker.kill_worker()
                     # TODO: Start new worker
                 self.times_lock.release()

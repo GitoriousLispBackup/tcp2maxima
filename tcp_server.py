@@ -17,6 +17,9 @@
 #    along with tcp2maxima.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+# Remark: At the moment this module doesn't do any logging.
+# That's because it wasn't needed yet. I might add this later.
+
 import socketserver
 import threading
 from maxima_threads import MaximaSupervisor, RequestController
@@ -26,9 +29,10 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 class RequestHandler(socketserver.BaseRequestHandler):
 
-    # This doesn't work at the moment. I guess it's because it's 
-    # was a stupid idea in the first place which abuses threads
-    # in a way you are not supposed to!
+    # We use a RequestController object to talk to the Maxima
+    # threads. This is probably not the best way to do this
+    # and might even be agains good programming principles
+    # or common sense. But I had no better idea.
     def handle(self):
         query = str(self.request.recv(1024), 'UTF-8')
         # Yes, that's the stupid part
@@ -40,23 +44,3 @@ class RequestHandler(socketserver.BaseRequestHandler):
             pass
         
         self.request.sendall(bytes(controller.get_reply(), 'UTF-8'))
-
-# Should not be executed in the end
-# but I have to test it, aight?
-# WON'T WORK ANYMORE!
-# DELETE SOON!
-def main():
-    host, port = "localhost", 9666 # My favourite port of the beast
-    supervisor = MaximaSupervisor()
-    supervisor.start()
-    server = ThreadedTCPServer((host, port), RequestHandler)
-    # Ugly hack to check whether this works 
-    server.maxima = supervisor
-    server.serve_forever()
-
-    supervisor.quit()
-    supervisor.join()
-
-
-if __name__ == "__main__":
-    main()

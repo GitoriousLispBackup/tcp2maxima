@@ -6,9 +6,9 @@ import configparser as cp
 
 config = cp.RawConfigParser()
 
-# General
-config.add_section('General')
-config.set('General', 'log_level', 'debug')
+# Logging
+config.add_section('Logging')
+config.set('Logging', 'level', 'DEBUG')
 
 # Server conf
 config.add_section('Server')
@@ -17,7 +17,8 @@ config.set('Server', 'port', '9666')
 
 # Maxima conf
 config.add_section('Maxima')
-config.set('Maxima', 'executable',  '/usr/bin/maxima')
+config.set('Maxima', 'path',  '/usr/bin/maxima')
+config.set('Maxima', 'threads', '3')
 config.set('Maxima', 'timeout', '10')
 config.set('Maxima', 'init', '''reset()$
 kill(all)$
