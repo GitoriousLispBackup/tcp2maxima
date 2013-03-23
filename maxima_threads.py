@@ -22,11 +22,13 @@ import subprocess as sp
 import threading
 import queue
 import time
+import replyparser as rp
 
 # Get a logger
 # TODO: Still have to figure out how to connect this to the main
 # logger when I use this as a module
 logger = logging.getLogger("tcp2maxima")
+
 
 class MaximaWorker(threading.Thread):
     """ A thread that controls a maxima instance and sends queries to it. """
@@ -37,14 +39,30 @@ class MaximaWorker(threading.Thread):
         """
         logger.debug("Starting Maxima worker thread " + str(name) + ".")
         threading.Thread.__init__(self);
+        self.parser = rp.ReplyParser() # I'm not sure but I think it's not thread safe to have only one global parser...
         self.name = name # Name of the thread, usually a integer
         self.sv = sv # The supervisor of the threads
-        self.options = ['--very-quiet'] # We don't want Maxima to report the version at startup
+        self.options = [] # We don't want Maxima to report the version at startup
         self.process = sp.Popen([sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE)
         self.stop = threading.Event() # A event we use to stop our maxima worker
         
-        # Initialize maxima with the init string form the configuration
+        # Read until ready
+        type, reply = self.parser.parse_line(str(self.process.stdout.readline(), "UTF-8"))
+        while type != rp.INPUT:
+            logger.debug("Maxima " + str(self.name) + " reply: " + reply )
+            type, reply = self.parser.parse_line(self.process.stdout.readline())
+
+        # Initializing maxima
+        logger.debug("Maxima " + str(name) + ": Writing init string to Maxima.")
         self.process.stdin.write(bytes(sv.cfg['init'], "UTF-8"))
+        
+        # This block is copy pasted which felt very wrong.
+        type, reply = self.parser.parse_line(str(self.process.stdout.readline(), "UTF-8"))
+        while type != rp.INPUT:
+            logger.debug("Maxima " + str(self.name) + " reply: " + reply )
+            type, reply = self.parser.parse_line(self.process.stdout.readline())
+
+
          
     def run(self):
         """ Starts the loop which pops elements off the queue. 
@@ -69,14 +87,27 @@ class MaximaWorker(threading.Thread):
             self.sv.add_time(self.name, time.time())
             
             # Start processing stuff with maxima
+            logger.debug("Worker " + self.name + " asks Maxima for: " + request)
             self.process.stdin.write(bytes(request, "UTF-8"))                
-            solution = self.process.stdout.readline()
+
+            # Consume maxima output until we get to the next input
+            reply = str(self.process.stdout.readline(), "UTF-8")
+            print(reply)
+            rtype, solution = self.parser.parse_line(reply)
+            final_solution = None
+
+            print(rtype)
+            while rtype == rp.INPUT:
+                if rtype == rp.OUTPUT:
+                    final_solution = str(solution, "UTF-8").strip()
+                else:
+                    logger.debug("Worker " + self.name + " got from Maxima: " + solution)
+                rtype, solution = self.parser.parse_line(str(self.process.stdout.readline(), "UTF-8"))
 
             # We solved the problem, so remove the time
             self.sv.del_time(self.name)
-
-            solution = str(solution, "UTF-8").strip()
-            if solution:
+            
+            if final_solution:
                 response.set_reply(solution)
             else:
                 response.set_reply("timeout")

@@ -1,0 +1,8 @@
+* TODO Write maxima input and output to the debug log
+* TODO Stop reading lines at (%ixxx)
+  Doesn't work with read_line() because we don't get a end of line character 
+  after the prompt.
+  I think we need non-blocking pipes as exlained here:
+  http://stackoverflow.com/questions/8980050/persistent-python-subprocess
+* TODO enable daemonizing the service
+* TODO Write log to file
