@@ -113,14 +113,15 @@ class MaximaWorker(threading.Thread):
             else:
                 response.set_reply("Timeout")
             # Set the event to signal the server that we are ready.
+
             response.set_ready()
             # Tell the queue we're done. 
             self.sv.queries.task_done()
                 
 
         # Quit Maxima
-        self.process.terminate()
-        time.sleep(1)
+        # self.process.terminate()
+        # time.sleep(1)
         self.process.kill()
         # we need to actively delete the process object to really kill the process
         del self.process 
@@ -227,7 +228,7 @@ class MaximaSupervisor(threading.Thread):
                         and time.time() - self.times[worker.name] > int(self.cfg['timeout']):
                     logger.warn("Maxima worker " + str(worker.name) + " timed out.")
                     worker.quit_worker()
-                    worker.join() # Only for debugging! Needs to go away afterwards!
+                    worker.join() # TODO Better solution wanted!
                     del worker
                     self.workers[i] = MaximaWorker(i, self)
                     self.del_time(i)

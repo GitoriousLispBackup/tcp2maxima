@@ -22,6 +22,7 @@
 
 import socketserver
 import threading
+import time
 from maxima_threads import MaximaSupervisor, RequestController
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -41,6 +42,6 @@ class RequestHandler(socketserver.BaseRequestHandler):
         
         # Wait for a Maxima worker thread to process our input 
         while not controller.is_ready():
-            pass
+            time.sleep(.1)
         
         self.request.sendall(bytes(controller.get_reply(), 'UTF-8'))

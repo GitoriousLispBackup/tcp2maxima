@@ -71,10 +71,12 @@ class App:
     # This handler should handle SIGINT and SIGTERM
     # to gracefully exit the threads.
     def signal_handler(self, signal, frame):
-        logging.warn("Received SIGTERM or SIGINT, trying to exit.")
-        print('Trying to exit gracefully...')
+        logger.warn("Received SIGTERM or SIGINT, trying to exit.")
+        logger.info("Stopping the Maxima supervisor.")
         self.supervisor.quit()
         self.supervisor.join()
+        logger.info("Shutting down the TCP server.")
+        self.server.shutdown()
         sys.exit(0)
 
     # Start the Server
