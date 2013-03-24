@@ -22,6 +22,8 @@ import subprocess as sp
 import threading
 import queue
 import time
+import fcntl
+import os
 import replyparser as rp
 
 # Get a logger
@@ -37,42 +39,52 @@ class MaximaWorker(threading.Thread):
         """Initializer. The supervisor sv owns the queue we use for queries.
         that's why we need it, too.
         """
-        logger.debug("Starting Maxima worker thread " + str(name) + ".")
+        logger.debug("Starting Maxima " + str(name) + ".")
         threading.Thread.__init__(self);
-        self.parser = rp.ReplyParser() # I'm not sure but I think it's not thread safe to have only one global parser...
+
+        # Initialize instance
+        self.parser = rp.ReplyParser(name) # I'm not sure but I think it's not thread safe to have only one global parser...
         self.name = name # Name of the thread, usually a integer
         self.sv = sv # The supervisor of the threads
         self.options = [] # We don't want Maxima to report the version at startup
-        self.process = sp.Popen([sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE)
         self.stop = threading.Event() # A event we use to stop our maxima worker
-        
+        # Start maxima and set up the process
+        self.process = sp.Popen([sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0)
+        # Setting the stdout pipe to non-blocking mode
+        # TBH I have no idea how this works, but it does what I want.
+        fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+
         # Read until ready
-        type, reply = self.parser.parse_line(str(self.process.stdout.readline(), "UTF-8"))
-        while type != rp.INPUT:
-            logger.debug("Maxima " + str(self.name) + " reply: " + reply )
-            type, reply = self.parser.parse_line(self.process.stdout.readline())
+        self._get_maxima_reply()
 
         # Initializing maxima
         logger.debug("Maxima " + str(name) + ": Writing init string to Maxima.")
         self.process.stdin.write(bytes(sv.cfg['init'], "UTF-8"))
         
-        # This block is copy pasted which felt very wrong.
-        type, reply = self.parser.parse_line(str(self.process.stdout.readline(), "UTF-8"))
-        while type != rp.INPUT:
-            logger.debug("Maxima " + str(self.name) + " reply: " + reply )
-            type, reply = self.parser.parse_line(self.process.stdout.readline())
+        # Read until ready
+        self._get_maxima_reply()
 
-
-         
     def run(self):
         """ Starts the loop which pops elements off the queue. 
         Runs until the stop event is sent from kill_worker().
         """
-        logger.debug("Maxima worker " + str(self.name) + " starts processing queries")
+        logger.info("Maxima" + str(self.name) + " starts processing queries")
         while not self.stop.isSet():
-            # TODO: It queue is empty it blocks here, so we can't really exit the worker.
-            query = self.sv.queries.get() # Pop a element from the queue.
-                
+            # Reset maxima for the next query
+            self._reset_maxima()
+
+            # Don't block while reading the queue because we want to be able to exit
+            query = None
+            while not query:
+                try:
+                    query = self.sv.queries.get(block=False) # Pop a element from the queue.
+                except queue.Empty:
+                    pass
+                time.sleep(.1)
+                if self.stop.isSet():
+                    continue
+                    break
+
             request = query[0] # The sting we want to send to maxima
             response = query[1] # The RequestController to send back the response
             
@@ -87,60 +99,84 @@ class MaximaWorker(threading.Thread):
             self.sv.add_time(self.name, time.time())
             
             # Start processing stuff with maxima
-            logger.debug("Worker " + self.name + " asks Maxima for: " + request)
+            logger.debug("Maxima " + self.name + " query: " + request)
             self.process.stdin.write(bytes(request, "UTF-8"))                
 
-            # Consume maxima output until we get to the next input
-            reply = str(self.process.stdout.readline(), "UTF-8")
-            print(reply)
-            rtype, solution = self.parser.parse_line(reply)
-            final_solution = None
-
-            print(rtype)
-            while rtype == rp.INPUT:
-                if rtype == rp.OUTPUT:
-                    final_solution = str(solution, "UTF-8").strip()
-                else:
-                    logger.debug("Worker " + self.name + " got from Maxima: " + solution)
-                rtype, solution = self.parser.parse_line(str(self.process.stdout.readline(), "UTF-8"))
+            # Wait for a reply from maxima
+            reply = self._get_maxima_reply()
 
             # We solved the problem, so remove the time
             self.sv.del_time(self.name)
             
-            if final_solution:
-                response.set_reply(solution)
+            if reply:
+                response.set_reply(reply)
             else:
-                response.set_reply("timeout")
+                response.set_reply("Timeout")
             # Set the event to signal the server that we are ready.
             response.set_ready()
             # Tell the queue we're done. 
             self.sv.queries.task_done()
+                
 
-        # TODO: This leaves some weird sbcl zombie alive,
-        # how do we kill that m****f****er????
+        # Quit Maxima
         self.process.terminate()
+        time.sleep(1)
+        self.process.kill()
         # we need to actively delete the process object to really kill the process
         del self.process 
         logger.info("Worker " + str(self.name) + " exits")
 
     def quit_worker(self):
         """ Sets the event to stop the thread """
+        logger.debug("Worker " + str(self.name) + " is about to exit.")
         self.stop.set()
 
-    def kill_worker(self):
-        """ Quits worker thread but kills the Maxima process first.
-        This is necessary if the Maxima times out.
-        """
-        logger.debug("Worker " + str(self.name) + " will be (ex)terminated")
-        self.process.terminate()
-        self.quit_worker()
+    
+    def _get_maxima_reply(self):
+        """Read the output of Maxima"""
+        # This method blocks if maxima doesn't return to a input
+        # prompt. This is intended that we get a timeout if Maxima
+        # doesn't like our query
+        # Oh, and by the way: This code is ugly as hell!
+        reply = None
+        output = None
+        ready = False
+        logger.debug("Worker " + str(self.name) + " waits for Maxima reply.")
+        while not output and not self.stop.isSet():
+            output = self.process.stdout.read()
+            self.process.stdout.flush()
+            time.sleep(.1)
+        if output:
+            reply, ready = self.parser.parse(str(output, "UTF-8"))
+
+        # Basically just repeat what we did above.
+        while not ready and not self.stop.isSet():
+            logger.debug("Worker " + str(self.name) + " received a partial reply.")
+            output = None
+            logger.debug("Worker " + str(self.name) + " waiting for more data from Maxima.")
+            while not output and not self.stop.isSet():
+                output = self.process.stdout.read()
+                self.process.stdout.flush()
+                time.sleep(.1)
+            if output:
+                reply_tmp, ready = self.parser.parse(str(output, "UTF-8"))
+                if reply_tmp and reply:
+                    reply += "\n" + reply_tmp
+                elif reply_tmp:
+                    reply = reply_tmp
+        logger.debug("Worker " + str(self.name) + " received full reply from Maxima or is forced to quit.")
+        return reply
 
     def _reset_maxima(self):
         # Reset and re-init the maxima process
         # TODO: Check what we really need here.
-        self.process.stdin.write("reset();")
-        self.process.stdin.write("kill(all);")
-        self.process.stdin.write(sv.cfg['init'])
+        self.process.stdin.write(b"reset();")
+        self.process.stdin.write(b"kill(all);")
+        self.process.stdin.write(bytes(self.sv.cfg['init'], "UTF-8"))
+
+        # Read until ready
+        self._get_maxima_reply()
+
 
 class MaximaSupervisor(threading.Thread):
     """ Class which controlls the Maxima worker threads. """
@@ -190,9 +226,11 @@ class MaximaSupervisor(threading.Thread):
                 if worker.name in self.times.keys() \
                         and time.time() - self.times[worker.name] > int(self.cfg['timeout']):
                     logger.warn("Maxima worker " + str(worker.name) + " timed out.")
-                    worker.kill_worker()
+                    worker.quit_worker()
+                    worker.join() # Only for debugging! Needs to go away afterwards!
                     del worker
                     self.workers[i] = MaximaWorker(i, self)
+                    self.del_time(i)
                 self.times_lock.release()
         # We want to quit the superviser. 
         # Wait for the queue to be emptied
