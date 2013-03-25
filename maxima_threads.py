@@ -49,7 +49,7 @@ class MaximaWorker(threading.Thread):
         self.options = [] # We don't want Maxima to report the version at startup
         self.stop = threading.Event() # A event we use to stop our maxima worker
         # Start maxima and set up the process
-        self.process = sp.Popen([sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0)
+        self.process = sp.Popen([sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
         # Setting the stdout pipe to non-blocking mode
         # TBH I have no idea how this works, but it does what I want.
         fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
@@ -82,8 +82,10 @@ class MaximaWorker(threading.Thread):
                     pass
                 time.sleep(.1)
                 if self.stop.isSet():
-                    continue
                     break
+            
+            if self.stop.isSet():
+                break
 
             request = query[0] # The sting we want to send to maxima
             response = query[1] # The RequestController to send back the response
@@ -100,7 +102,7 @@ class MaximaWorker(threading.Thread):
             
             # Start processing stuff with maxima
             logger.debug("Maxima " + self.name + " query: " + request)
-            self.process.stdin.write(bytes(request, "UTF-8"))                
+            self.process.stdin.write(bytes(request, "UTF-8"))
 
             # Wait for a reply from maxima
             reply = self._get_maxima_reply()
@@ -148,6 +150,7 @@ class MaximaWorker(threading.Thread):
             self.process.stdout.flush()
             time.sleep(.1)
         if output:
+            logger.debug("Worker " + str(self.name) + " received: " +  str(output, "UTF-8"))
             reply, ready = self.parser.parse(str(output, "UTF-8"))
 
         # Basically just repeat what we did above.
@@ -160,6 +163,7 @@ class MaximaWorker(threading.Thread):
                 self.process.stdout.flush()
                 time.sleep(.1)
             if output:
+                logger.debug("Worker " + str(self.name) + " received: " + str(output, "UTF-8"))
                 reply_tmp, ready = self.parser.parse(str(output, "UTF-8"))
                 if reply_tmp and reply:
                     reply += "\n" + reply_tmp
@@ -171,8 +175,6 @@ class MaximaWorker(threading.Thread):
     def _reset_maxima(self):
         # Reset and re-init the maxima process
         # TODO: Check what we really need here.
-        self.process.stdin.write(b"reset();")
-        self.process.stdin.write(b"kill(all);")
         self.process.stdin.write(bytes(self.sv.cfg['init'], "UTF-8"))
 
         # Read until ready
@@ -226,13 +228,18 @@ class MaximaSupervisor(threading.Thread):
                 self.times_lock.acquire()
                 if worker.name in self.times.keys() \
                         and time.time() - self.times[worker.name] > int(self.cfg['timeout']):
+                    self.times_lock.release()
                     logger.warn("Maxima worker " + str(worker.name) + " timed out.")
                     worker.quit_worker()
                     worker.join() # TODO Better solution wanted!
                     del worker
                     self.workers[i] = MaximaWorker(i, self)
-                    self.del_time(i)
-                self.times_lock.release()
+                else:
+                    self.times_lock.release()
+                    # Wait to avoid a deadlock.
+                    # TODO: Doesn't work! There might be a better solution.
+                    time.sleep(.5)
+                
         # We want to quit the superviser. 
         # Wait for the queue to be emptied
         logger.info("Quitting Maxima supervisor.")
@@ -241,7 +248,7 @@ class MaximaSupervisor(threading.Thread):
         logger.debug("Quitting the Maxima workers.")
         for worker in self.workers:
             worker.quit_worker()
-            # worker.join() <- Would be nice, but doesn't work because of the blocking get on the Queue
+            worker.join() # Should work now because the queue doesn't block anymore
                 
     def request(self, query, callback):
         self.queries.put([query, callback]) 
@@ -269,6 +276,9 @@ class RequestController:
 
     def is_ready(self):
         return self.ready.isSet()
+
+    def wait(self):
+        self.ready.wait()
 
     def set_reply(self, reply):
         self.reply = reply

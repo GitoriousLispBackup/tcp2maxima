@@ -41,7 +41,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
         self.server.maxima.request(query, controller)
         
         # Wait for a Maxima worker thread to process our input 
-        while not controller.is_ready():
-            time.sleep(.1)
-        
+        controller.wait()
+
         self.request.sendall(bytes(controller.get_reply(), 'UTF-8'))
+        del controller

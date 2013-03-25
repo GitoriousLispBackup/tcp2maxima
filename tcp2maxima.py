@@ -44,6 +44,8 @@ config.read(alt_path)
 logging.basicConfig(level=config['Logging']['level'])
 logger = logging.getLogger("tcp2maxima")
 
+# Used to count SIGTERMS
+signal_count = 0
 
 # These depend on the logger we just configured
 from maxima_threads import MaximaSupervisor, RequestController
@@ -71,12 +73,20 @@ class App:
     # This handler should handle SIGINT and SIGTERM
     # to gracefully exit the threads.
     def signal_handler(self, signal, frame):
+        global signal_count
+        
+        # Hitting ctrl-c multiple times forces to quit.
+        if signal_count > 0:
+            logger.warn("User is in impatient, forcing exit.")
+            exit(1)
+        signal_count +=1
         logger.warn("Received SIGTERM or SIGINT, trying to exit.")
         logger.info("Stopping the Maxima supervisor.")
         self.supervisor.quit()
         self.supervisor.join()
-        logger.info("Shutting down the TCP server.")
-        self.server.shutdown()
+        # TODO: Doesn't work, don't know why
+        #logger.info("Shutting down the TCP server.")
+        #self.server.shutdown()
         sys.exit(0)
 
     # Start the Server
