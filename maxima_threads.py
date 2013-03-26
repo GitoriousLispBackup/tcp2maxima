@@ -17,13 +17,16 @@
 #    along with tcp2maxima.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+# Python library imports
+import fcntl
 import logging
+import os
+import queue
 import subprocess as sp
 import threading
-import queue
 import time
-import fcntl
-import os
+
+# Local imports
 import replyparser as rp
 
 # Get a logger
@@ -97,24 +100,25 @@ class MaximaWorker(threading.Thread):
             if request == '' or request[len(request)-1] != ';':
                 request = request + ';'
             
-            # We record the time, when we start working
-            self.sv.add_time(self.name, time.time())
-            
             # Start processing stuff with maxima
             logger.debug("Maxima " + self.name + " query: " + request)
             self.process.stdin.write(bytes(request, "UTF-8"))
 
             # Wait for a reply from maxima
-            reply = self._get_maxima_reply()
-
-            # We solved the problem, so remove the time
-            self.sv.del_time(self.name)
-            
-            if reply:
+            try:
+                reply = self._get_maxima_reply()
                 response.set_reply(reply)
-            else:
+            except TimeoutException:
                 response.set_reply("Timeout")
-            # Set the event to signal the server that we are ready.
+                # Kill the Maxima and start a new one
+                logger.info("Maxima " + self.name + " timed out and will be killed.")
+                # TODO: This should go somewhere else.
+                self.process.kill()
+                del self.process
+                self.process = sp.Popen([self.sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
+                fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+                logger.info("Maxima " + self.name + " started with a new Maxima process.")
+                # TODO: Initialize maxima properly
 
             response.set_ready()
             # Tell the queue we're done. 
@@ -124,7 +128,7 @@ class MaximaWorker(threading.Thread):
         # Quit Maxima
         # self.process.terminate()
         # time.sleep(1)
-        self.process.kill()
+        self.process.terminate()
         # we need to actively delete the process object to really kill the process
         del self.process 
         logger.info("Worker " + str(self.name) + " exits")
@@ -137,6 +141,13 @@ class MaximaWorker(threading.Thread):
     
     def _get_maxima_reply(self):
         """Read the output of Maxima"""
+
+        # Used for timeout handling
+        timeout = int(self.sv.cfg['timeout'])
+        start_stamp = time.time()        
+        def _check_timeout():
+            if time.time() - start_stamp > timeout:
+                raise TimeoutException
         # This method blocks if maxima doesn't return to a input
         # prompt. This is intended that we get a timeout if Maxima
         # doesn't like our query
@@ -144,8 +155,10 @@ class MaximaWorker(threading.Thread):
         reply = None
         output = None
         ready = False
+
         logger.debug("Worker " + str(self.name) + " waits for Maxima reply.")
-        while not output and not self.stop.isSet():
+        while not output:
+            _check_timeout()
             output = self.process.stdout.read()
             self.process.stdout.flush()
             time.sleep(.1)
@@ -154,11 +167,12 @@ class MaximaWorker(threading.Thread):
             reply, ready = self.parser.parse(str(output, "UTF-8"))
 
         # Basically just repeat what we did above.
-        while not ready and not self.stop.isSet():
+        while not ready:
             logger.debug("Worker " + str(self.name) + " received a partial reply.")
             output = None
             logger.debug("Worker " + str(self.name) + " waiting for more data from Maxima.")
-            while not output and not self.stop.isSet():
+            while not output:
+                _check_timeout()
                 output = self.process.stdout.read()
                 self.process.stdout.flush()
                 time.sleep(.1)
@@ -169,7 +183,7 @@ class MaximaWorker(threading.Thread):
                     reply += "\n" + reply_tmp
                 elif reply_tmp:
                     reply = reply_tmp
-        logger.debug("Worker " + str(self.name) + " received full reply from Maxima or is forced to quit.")
+        logger.debug("Maxima " + str(self.name) + " sent full reply.")
         return reply
 
     def _reset_maxima(self):
@@ -196,49 +210,18 @@ class MaximaSupervisor(threading.Thread):
         # 0. The actual string that's sent to maxima
         # 1. A RequestController object used to reply to the TCP server
         self.queries = queue.Queue()        
-        self.times = {} # Calculation times of the threads
-        self.times_lock = threading.Lock() # Here we need a lock for this
         self.stop = threading.Event()
         self.workers = [MaximaWorker(i, self) for i in range(int(cfg['threads']))]
         for worker in self.workers:
             worker.setDaemon(True) 
             worker.start() 
             
-    # Add a starting time for a certain thread
-    # used to track the time a thread works
-    def add_time(self, thread, time):
-        self.times_lock.acquire()
-        self.times[thread] = time
-        self.times_lock.release()
-
-    # Call this when a thread gets something back
-    # from Maxima. 
-    def del_time(self, thread):
-        self.times_lock.acquire()
-        del self.times[thread]
-        self.times_lock.release()
-            
     def run(self):
         logger.info("Starting Maxima supervisor.")
         while not self.stop.isSet(): 
             time.sleep(2) 
-            # Check threads sanity
-            for i in range(len(self.workers)):
-                worker = self.workers[i]
-                self.times_lock.acquire()
-                if worker.name in self.times.keys() \
-                        and time.time() - self.times[worker.name] > int(self.cfg['timeout']):
-                    self.times_lock.release()
-                    logger.warn("Maxima worker " + str(worker.name) + " timed out.")
-                    worker.quit_worker()
-                    worker.join() # TODO Better solution wanted!
-                    del worker
-                    self.workers[i] = MaximaWorker(i, self)
-                else:
-                    self.times_lock.release()
-                    # Wait to avoid a deadlock.
-                    # TODO: Doesn't work! There might be a better solution.
-                    time.sleep(.5)
+            # TODO: What do we do here? Do we still need the supervisor?
+
                 
         # We want to quit the superviser. 
         # Wait for the queue to be emptied
@@ -255,6 +238,9 @@ class MaximaSupervisor(threading.Thread):
 
     def quit(self):
         self.stop.set()
+
+class TimeoutException(Exception):
+    pass
 
 
 class RequestController:
