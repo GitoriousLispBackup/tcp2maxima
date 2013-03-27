@@ -23,12 +23,16 @@
 import socketserver
 import threading
 import time
-from maxima_threads import MaximaSupervisor, RequestController
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
 
 class RequestHandler(socketserver.BaseRequestHandler):
+
+    def __init__(self, callback, *args, **keys):
+        # callback is a function which accepts a query and a request controller
+        self.callback = callback
+        socketserver.BaseRequestHandler.__init__(self, *args, **keys)
 
     # We use a RequestController object to talk to the Maxima
     # threads. This is probably not the best way to do this
@@ -38,7 +42,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
         query = str(self.request.recv(1024), 'UTF-8')
         # Yes, that's the stupid part
         controller = RequestController() 
-        self.server.maxima.request(query, controller)
+        self.callback(query, controller)
         
         # Wait for a Maxima worker thread to process our input 
         controller.wait()
@@ -47,3 +51,32 @@ class RequestHandler(socketserver.BaseRequestHandler):
         if reply:
             self.request.sendall(bytes(controller.get_reply(), 'UTF-8'))
         del controller
+
+class RequestController:
+    """ RequestController are used to exchange data
+    between the TCP server and the maxima worker threads
+
+    Objects are not initialized here but by the TCP server
+    but it's more logical to keep this class here...
+    """
+    def __init__(self):
+        # Event that is set by the worker as soon as
+        # the Maxima output is ready
+        self.ready = threading.Event()
+        # Here we store the maxima output.
+        self.reply = ''
+
+    def set_ready(self):
+        self.ready.set()
+
+    def is_ready(self):
+        return self.ready.isSet()
+
+    def wait(self):
+        self.ready.wait()
+
+    def set_reply(self, reply):
+        self.reply = reply
+
+    def get_reply(self):
+        return self.reply

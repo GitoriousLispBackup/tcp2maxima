@@ -21,7 +21,6 @@
 import fcntl
 import logging
 import os
-import queue
 import subprocess as sp
 import threading
 import time
@@ -39,7 +38,7 @@ logger = logging.getLogger("tcp2maxima")
 class MaximaWorker(threading.Thread):
     """ A thread that controls a maxima instance and sends queries to it. """
 
-    def __init__(self, name, sv):
+    def __init__(self, name, queries, cfg):
         """Initializer. The supervisor sv owns the queue we use for queries.
         that's why we need it, too.
         """
@@ -47,15 +46,16 @@ class MaximaWorker(threading.Thread):
         threading.Thread.__init__(self);
 
         # Initialize instance
+        self.cfg = cfg
+        self.queries = queries
         self.parser = rp.ReplyParser(name) # I'm not sure but I think it's not thread safe to have only one global parser...
         self.name = name # Name of the thread, usually a integer
-        self.sv = sv # The supervisor of the threads
         self.options = [] # We don't want Maxima to report the version at startup
         self.stop = threading.Event() # A event we use to stop our maxima worker
         self.fltr = RequestFilter()
 
         # Start maxima and set up the process
-        self.process = sp.Popen([sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
+        self.process = sp.Popen([self.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
         # Setting the stdout pipe to non-blocking mode
         # TBH I have no idea how this works, but it does what I want.
         fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
@@ -65,7 +65,7 @@ class MaximaWorker(threading.Thread):
 
         # Initializing maxima
         logger.debug("Maxima " + str(name) + ": Writing init string to Maxima.")
-        self.process.stdin.write(bytes(sv.cfg['init'], "UTF-8"))
+        self.process.stdin.write(bytes(self.cfg['init'], "UTF-8"))
         
         # Read until ready
         self._get_maxima_reply()
@@ -83,7 +83,7 @@ class MaximaWorker(threading.Thread):
             query = None
             while not query:
                 try:
-                    query = self.sv.queries.get(block=False) # Pop a element from the queue.
+                    query = self.queries.get(block=False) # Pop a element from the queue.
                 except queue.Empty:
                     pass
                 time.sleep(.1)
@@ -115,14 +115,14 @@ class MaximaWorker(threading.Thread):
                 # TODO: This should go somewhere else.
                 self.process.kill()
                 del self.process
-                self.process = sp.Popen([self.sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
+                self.process = sp.Popen([self.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
                 fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
                 logger.info("Maxima " + self.name + " started with a new Maxima process.")
                 # TODO: Initialize maxima properly
 
             response.set_ready()
             # Tell the queue we're done. 
-            self.sv.queries.task_done()
+            self.queries.task_done()
                 
 
         # Quit Maxima
@@ -142,7 +142,7 @@ class MaximaWorker(threading.Thread):
         """Read the output of Maxima"""
 
         # Used for timeout handling
-        timeout = int(self.sv.cfg['timeout'])
+        timeout = int(self.cfg['timeout'])
         start_stamp = time.time()        
         def _check_timeout():
             if time.time() - start_stamp > timeout:
@@ -188,86 +188,15 @@ class MaximaWorker(threading.Thread):
     def _reset_maxima(self):
         # Reset and re-init the maxima process
         # TODO: Check what we really need here.
-        self.process.stdin.write(bytes(self.sv.cfg['init'], "UTF-8"))
+        self.process.stdin.write(bytes(self.cfg['init'], "UTF-8"))
 
         # Read until ready
         self._get_maxima_reply()
 
 
-class MaximaSupervisor(threading.Thread):
-    """ Class which controlls the Maxima worker threads. """
-    
-    def __init__(self, cfg):
-        threading.Thread.__init__(self)
-
-        # Configuration for the workers
-        self.cfg = cfg # Multiline init string for Maxima
-        
-        # The queue that holds the maxima queries which are sent to 
-        # Maxima by the worker threads.
-        # A query is a 2-tuple consisting of:
-        # 0. The actual string that's sent to maxima
-        # 1. A RequestController object used to reply to the TCP server
-        self.queries = queue.Queue()        
-        self.stop = threading.Event()
-        self.workers = [MaximaWorker(i, self) for i in range(int(cfg['threads']))]
-        for worker in self.workers:
-            worker.setDaemon(True) 
-            worker.start() 
-            
-    def run(self):
-        logger.info("Starting Maxima supervisor.")
-        while not self.stop.isSet(): 
-            time.sleep(2) 
-            # TODO: What do we do here? Do we still need the supervisor?
-
-                
-        # We want to quit the superviser. 
-        # Wait for the queue to be emptied
-        logger.info("Quitting Maxima supervisor.")
-        logger.debug("Waiting for the querie queue to be emtpied.")
-        self.queries.join()
-        logger.debug("Quitting the Maxima workers.")
-        for worker in self.workers:
-            worker.quit_worker()
-            worker.join() # Should work now because the queue doesn't block anymore
-                
-    def request(self, query, callback):
-        self.queries.put([query, callback]) 
-
-    def quit(self):
-        self.stop.set()
-
 class TimeoutException(Exception):
     pass
 
 
-class RequestController:
-    """ RequestController are used to exchange data
-    between the TCP server and the maxima worker threads
 
-    Objects are not initialized here but by the TCP server
-    but it's more logical to keep this class here...
-    """
-    def __init__(self):
-        # Event that is set by the worker as soon as
-        # the Maxima output is ready
-        self.ready = threading.Event()
-        # Here we store the maxima output.
-        self.reply = ''
-
-    def set_ready(self):
-        self.ready.set()
-
-    def is_ready(self):
-        return self.ready.isSet()
-
-    def wait(self):
-        self.ready.wait()
-
-    def set_reply(self, reply):
-        self.reply = reply
-
-    def get_reply(self):
-        return self.reply
 
