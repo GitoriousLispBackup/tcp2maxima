@@ -28,6 +28,7 @@ import time
 
 # Local imports
 import replyparser as rp
+from requestfilter import RequestFilter
 
 # Get a logger
 # TODO: Still have to figure out how to connect this to the main
@@ -51,6 +52,8 @@ class MaximaWorker(threading.Thread):
         self.sv = sv # The supervisor of the threads
         self.options = [] # We don't want Maxima to report the version at startup
         self.stop = threading.Event() # A event we use to stop our maxima worker
+        self.fltr = RequestFilter()
+
         # Start maxima and set up the process
         self.process = sp.Popen([sv.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
         # Setting the stdout pipe to non-blocking mode
@@ -93,12 +96,9 @@ class MaximaWorker(threading.Thread):
             request = query[0] # The sting we want to send to maxima
             response = query[1] # The RequestController to send back the response
             
-            # Add a semicolon at the line end if the user
-            # didn't provide one
-            # TODO: We need a lot more sanity checks 
-            # on the input here! !!!!!
-            if request == '' or request[len(request)-1] != ';':
-                request = request + ';'
+            # Filter request with our request filter
+            # TODO: What to do if the string isn't accepted?
+            request = self.fltr.filter(request)
             
             # Start processing stuff with maxima
             logger.debug("Maxima " + self.name + " query: " + request)
@@ -137,7 +137,6 @@ class MaximaWorker(threading.Thread):
         """ Sets the event to stop the thread """
         logger.debug("Worker " + str(self.name) + " is about to exit.")
         self.stop.set()
-
     
     def _get_maxima_reply(self):
         """Read the output of Maxima"""

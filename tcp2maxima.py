@@ -43,6 +43,8 @@ config.read(alt_path)
 ##########################
 logging.basicConfig(level=config['Logging']['level'])
 logger = logging.getLogger("tcp2maxima")
+# TODO: Loggin to file... 
+# handler = logging.FileHandler(config['Logging']['file'])
 
 # Used to count SIGTERMS
 signal_count = 0

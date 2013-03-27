@@ -20,11 +20,7 @@ config.add_section('Maxima')
 config.set('Maxima', 'path',  '/usr/bin/maxima')
 config.set('Maxima', 'threads', '3')
 config.set('Maxima', 'timeout', '10')
-config.set('Maxima', 'init', '''reset()$
-kill(all)$
-display2d:false$
-linel:10000$
-''')
+config.set('Maxima', 'init', 'reset()$kill(all)$display2d:false$linel:10000$')
 
 
 # Writing our configuration file to 'example.cfg'
