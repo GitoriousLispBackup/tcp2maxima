@@ -21,6 +21,7 @@
 import fcntl
 import logging
 import os
+import queue
 import subprocess as sp
 import threading
 import time
