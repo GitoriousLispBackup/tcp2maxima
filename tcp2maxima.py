@@ -19,8 +19,11 @@
 
 import configparser
 import os
+import queue
 import signal
+import threading
 import sys
+import time
 import logging
 
 ##########################
@@ -48,27 +51,27 @@ logger = logging.getLogger("tcp2maxima")
 signal_count = 0
 
 # These depend on the logger we just configured
-from maxima_threads import MaximaSupervisor, RequestController
+from maxima_threads import MaximaWorker
 from tcp_server import ThreadedTCPServer, RequestHandler
 
 
 class App:
+    """The main application"""
     def __init__(self, config):
         logger.info("Initializing application.")
+        self.stop = False # Use to stop application
         # Initialize Maxima supervisor
-        mxcfg = config['Maxima']
-        # TODO: Send the whole maxima config over
-        self.supervisor = MaximaSupervisor(mxcfg)
+        self.mxcfg = config['Maxima']
+        # Queue used to send request to the maxima instances
+        self.queries = queue.Queue()      
 
         # Initialize tcp server
         srvcfg = config['Server']
-        # TODO: Send the whole server conf over
         self.host, self.port = srvcfg['address'], int(srvcfg['port'])
-        self.server = ThreadedTCPServer((self.host, self.port), RequestHandler)
-        # This is a ugly hack...
-        # Of course this should go in the initializer
-        # of this class. But sry, don't feel like it ATM.
-        self.server.maxima = self.supervisor
+        # Create a simple request factory on the spot
+        mycallback = lambda query, controller: self.queries.put((query, controller))
+        get_handler = lambda *args, **keys: RequestHandler(mycallback, *args, **keys)
+        self.server = ThreadedTCPServer((self.host, self.port), get_handler)
 
     # This handler should handle SIGINT and SIGTERM
     # to gracefully exit the threads.
@@ -78,22 +81,39 @@ class App:
         # Hitting ctrl-c multiple times forces to quit.
         if signal_count > 0:
             logger.warn("User is in impatient, forcing exit.")
-            exit(1)
+            sys.exit(1)
         signal_count +=1
         logger.warn("Received SIGTERM or SIGINT, trying to exit.")
-        logger.info("Stopping the Maxima supervisor.")
-        self.supervisor.quit()
-        self.supervisor.join()
-        # TODO: Doesn't work, don't know why
-        #logger.info("Shutting down the TCP server.")
-        #self.server.shutdown()
-        sys.exit(0)
+        self.stop = True
 
     # Start the Server
     def run(self):
-        self.supervisor.start()
+        logger.info("Starting " + self.mxcfg['threads'] + " Maxima threads.")
+        self.workers = [MaximaWorker(i, self.queries, self.mxcfg) for i in range(int(self.mxcfg['threads']))]
+        for worker in self.workers:
+            worker.setDaemon(True) 
+            worker.start() 
+
         logger.info("Starting TCP server on " + self.host + " listening to port " + str(self.port))
-        self.server.serve_forever()
+        # Cant shut down the server, that's why I create a thread for now.
+        # self.server.serve_forever()
+
+        server_thread = threading.Thread(target=self.server.serve_forever)
+        # Exit the server thread when the main thread terminates
+        server_thread.daemon = True
+        server_thread.start()
+
+        # Just wait for someone to quit the application.
+        while self.stop == False:
+            time.sleep(.5)
+
+        # Quitting after tcp server shutdown
+        self.queries.join()
+        logger.debug("Quitting the Maxima workers.")
+        for worker in self.workers:
+            worker.quit_worker()
+            worker.join() 
+        
 
 if __name__ == "__main__":
     app = App(config)
