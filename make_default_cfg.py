@@ -6,6 +6,12 @@ import configparser as cp
 
 config = cp.RawConfigParser()
 
+# Main configuration
+config.add_section('General')
+config.set('General', 'daemon', '0')
+config.set('General', 'user', '0')
+config.set('General', 'lockfile', '/var/run/lock/tcp2maxima.lock')
+
 # Logging
 config.add_section('Logging')
 config.set('Logging', 'level', 'DEBUG')

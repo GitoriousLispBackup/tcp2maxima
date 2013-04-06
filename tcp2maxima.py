@@ -1,3 +1,5 @@
+#! env python
+
 # This file is part of tcp2maxima.
 #
 #    Copyright (c) 2013 Beni Keller
@@ -17,6 +19,7 @@
 #    along with tcp2maxima.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import argparse
 import configparser
 import os
 import queue
@@ -55,6 +58,32 @@ signal_count = 0
 # These depend on the logger we just configured
 from maxima_threads import MaximaWorker
 from tcp_server import ThreadedTCPServer, RequestHandler
+
+########################################
+### Configure command line arguments ###
+########################################
+
+# Configure the command line parser and the command line options
+parser = argparse.ArgumentParser(description='A threading tcp interface to Maxima instances.')
+parser.add_argument('-d', '--daemon', 
+                    dest='daemon',
+                    action='store_true',
+                   help='run as a deamon process')
+parser.add_argument('--user', dest='user', default=False
+                    help="set user who owns the process (might not work unless run as root)")
+
+args = parser.parse_args()
+
+# Global configuration extracted from command line options and in some
+# parts from the configuration file.
+cfg = {}
+cfg['daemon'] = config.getboolean('General', 'daemon') or args.daemon
+cfg['user'] = args.user
+
+
+########################################
+### Main application                 ###
+########################################
 
 
 class App:

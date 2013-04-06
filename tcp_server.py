@@ -34,13 +34,17 @@ class RequestHandler(socketserver.BaseRequestHandler):
         self.callback = callback
         socketserver.BaseRequestHandler.__init__(self, *args, **keys)
 
-    # We use a RequestController object to talk to the Maxima
-    # threads. This is probably not the best way to do this
-    # and might even be agains good programming principles
-    # or common sense. But I had no better idea.
+    # Handle a request and stick the query into the queue.
     def handle(self):
-        query = str(self.request.recv(1024), 'UTF-8')
-        # Yes, that's the stupid part
+        # We use a newline character as terminator for our input
+        # This means every query needs to be terminated by a newline!
+        query = ''
+        while query == '' or query[len(query)-1] != '\n':
+            query += str(self.request.recv(1024), 'UTF-8')
+        
+        # Controller object which is passed to the 
+        # TODO: It would be a lot easier to pass on the tcp client (request) itself
+        # But at the moment this feels cleaner.
         controller = RequestController() 
         self.callback(query, controller)
         
@@ -55,9 +59,6 @@ class RequestHandler(socketserver.BaseRequestHandler):
 class RequestController:
     """ RequestController are used to exchange data
     between the TCP server and the maxima worker threads
-
-    Objects are not initialized here but by the TCP server
-    but it's more logical to keep this class here...
     """
     def __init__(self):
         # Event that is set by the worker as soon as
