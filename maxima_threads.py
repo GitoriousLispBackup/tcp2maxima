@@ -205,7 +205,7 @@ class MaximaWorker(threading.Thread):
         # Read until ready
         try:
             self._get_maxima_reply()
-        except TimeoutError:
+        except TimeoutException:
             logger.warn("Maxima %s failed to reset! Starting new instance." % self.name)
             self._restart_maxima()
             
