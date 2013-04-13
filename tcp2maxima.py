@@ -69,7 +69,7 @@ parser.add_argument('-d', '--daemon',
                     dest='daemon',
                     action='store_true',
                    help='run as a deamon process')
-parser.add_argument('--user', dest='user', default=False
+parser.add_argument('--user', dest='user', default=False,
                     help="set user who owns the process (might not work unless run as root)")
 
 args = parser.parse_args()
@@ -116,7 +116,7 @@ class App:
         signal_count +=1
         logger.warn("Received SIGTERM or SIGINT, trying to exit.")
         self.stop = True
-
+        
     # Start the Server
     def run(self):
         logger.info("Starting " + self.mxcfg['threads'] + " Maxima threads.")
@@ -128,6 +128,7 @@ class App:
         logger.info("Starting TCP server on " + self.host + " listening to port " + str(self.port))
         # Cant shut down the server, that's why I create a thread for now.
         # self.server.serve_forever()
+        
 
         server_thread = threading.Thread(target=self.server.serve_forever)
         # Exit the server thread when the main thread terminates
