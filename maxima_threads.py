@@ -62,14 +62,21 @@ class MaximaWorker(threading.Thread):
         fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
 
         # Read until ready
-        self._get_maxima_reply()
+        try:
+            self._get_maxima_reply()
+        except TimeoutException:
+            logger.error("Maxima %s didn't start correctly!" % self.name)
+
 
         # Initializing maxima
         logger.debug("Maxima " + str(name) + ": Writing init string to Maxima.")
         self.process.stdin.write(bytes(self.cfg['init'], "UTF-8"))
         
         # Read until ready
-        self._get_maxima_reply()
+        try:
+            self._get_maxima_reply()
+        except TimeoutException:
+            logger.error("Maxima %s didn't initialize correctly!" % self.name)
 
     def run(self):
         """ Starts the loop which pops elements off the queue. 
@@ -111,15 +118,7 @@ class MaximaWorker(threading.Thread):
                 response.set_reply(reply)
             except TimeoutException:
                 response.set_reply("Timeout")
-                # Kill the Maxima and start a new one
-                logger.info("Maxima " + self.name + " timed out and will be killed.")
-                # TODO: This should go somewhere else.
-                self.process.kill()
-                del self.process
-                self.process = sp.Popen([self.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
-                fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
-                logger.info("Maxima " + self.name + " started with a new Maxima process.")
-                # TODO: Initialize maxima properly
+                self._restart_maxima()
 
             response.set_ready()
             # Tell the queue we're done. 
@@ -138,6 +137,18 @@ class MaximaWorker(threading.Thread):
         """ Sets the event to stop the thread """
         logger.debug("Worker " + str(self.name) + " is about to exit.")
         self.stop.set()
+
+    def _restart_maxima(self):
+        # Kill the Maxima and start a new one
+        logger.info("Maxima " + self.name + " timed out and will be killed.")
+        # TODO: This should go somewhere else.
+        self.process.kill()
+        del self.process
+        self.process = sp.Popen([self.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
+        fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+        logger.info("Maxima " + self.name + " started with a new Maxima process.")
+        # TODO: Initialize maxima properly
+
     
     def _get_maxima_reply(self):
         """Read the output of Maxima"""
@@ -192,8 +203,12 @@ class MaximaWorker(threading.Thread):
         self.process.stdin.write(bytes(self.cfg['init'], "UTF-8"))
 
         # Read until ready
-        self._get_maxima_reply()
-
+        try:
+            self._get_maxima_reply()
+        except TimeoutError:
+            logger.warn("Maxima %s failed to reset! Starting new instance." % self.name)
+            self._restart_maxima()
+            
 
 class TimeoutException(Exception):
     pass
