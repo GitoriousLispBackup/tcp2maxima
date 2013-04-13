@@ -10,11 +10,13 @@ config = cp.RawConfigParser()
 config.add_section('General')
 config.set('General', 'daemon', '0')
 config.set('General', 'user', '0')
-config.set('General', 'lockfile', '/var/run/lock/tcp2maxima.lock')
+config.set('General', 'loglevel', 'DEBUG')
 
-# Logging
-config.add_section('Logging')
-config.set('Logging', 'level', 'DEBUG')
+# Daemon section
+config.add_section('Daemon')
+config.set('Daemon', 'pid_dir', '/var/run/')
+config.set('Daemon', 'log_dir', '/var/log/')
+config.set('Daemon', 'user', 'root')
 
 # Server conf
 config.add_section('Server')

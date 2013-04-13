@@ -29,10 +29,13 @@ import sys
 import time
 import logging
 
+from daemon import Daemon
+
 ##########################
 ### Load configuration ###
 ##########################
 config = configparser.ConfigParser()
+
 # Read the default configuration 
 # if this doesn't exist it's not good.
 config.readfp(open('default.cfg'))
@@ -47,7 +50,7 @@ config.read(alt_path)
 ##########################
 ### Configure logger   ###
 ##########################
-logging.basicConfig(level=config['Logging']['level'])
+logging.basicConfig(level=config['General']['loglevel'])
 logger = logging.getLogger("tcp2maxima")
 # TODO: Loggin to file... 
 # handler = logging.FileHandler(config['Logging']['file'])
@@ -67,8 +70,8 @@ from tcp_server import ThreadedTCPServer, RequestHandler
 parser = argparse.ArgumentParser(description='A threading tcp interface to Maxima instances.')
 parser.add_argument('-d', '--daemon', 
                     dest='daemon',
-                    action='store_true',
-                   help='run as a deamon process')
+                    choices=['start', 'stop', 'restart'],
+                    help='start and stop the deamon process')
 parser.add_argument('--user', dest='user', default=False,
                     help="set user who owns the process (might not work unless run as root)")
 
@@ -77,7 +80,6 @@ args = parser.parse_args()
 # Global configuration extracted from command line options and in some
 # parts from the configuration file.
 cfg = {}
-cfg['daemon'] = config.getboolean('General', 'daemon') or args.daemon
 cfg['user'] = args.user
 
 
@@ -86,23 +88,16 @@ cfg['user'] = args.user
 ########################################
 
 
-class App:
+class App(Daemon):
     """The main application"""
     def __init__(self, config):
-        logger.info("Initializing application.")
-        self.stop = False # Use to stop application
+        user = config['Daemon']['user']
+        Daemon.__init__(self, config['Daemon']['pid_dir'], config['Daemon']['log_dir'], user=user)
+        self.stopping = False # Use to stop application
         # Initialize Maxima supervisor
         self.mxcfg = config['Maxima']
         # Queue used to send request to the maxima instances
         self.queries = queue.Queue()      
-
-        # Initialize tcp server
-        srvcfg = config['Server']
-        self.host, self.port = srvcfg['address'], int(srvcfg['port'])
-        # Create a simple request factory on the spot
-        mycallback = lambda query, controller: self.queries.put((query, controller))
-        get_handler = lambda *args, **keys: RequestHandler(mycallback, *args, **keys)
-        self.server = ThreadedTCPServer((self.host, self.port), get_handler)
 
     # This handler should handle SIGINT and SIGTERM
     # to gracefully exit the threads.
@@ -115,10 +110,19 @@ class App:
             sys.exit(1)
         signal_count +=1
         logger.warn("Received SIGTERM or SIGINT, trying to exit.")
-        self.stop = True
+        self.stopping = True
         
     # Start the Server
     def run(self):
+        
+        # Initialize tcp server
+        srvcfg = config['Server']
+        self.host, self.port = srvcfg['address'], int(srvcfg['port'])
+        # Create a simple request factory on the spot
+        mycallback = lambda query, controller: self.queries.put((query, controller))
+        get_handler = lambda *args, **keys: RequestHandler(mycallback, *args, **keys)
+        self.server = ThreadedTCPServer((self.host, self.port), get_handler)
+
         logger.info("Starting " + self.mxcfg['threads'] + " Maxima threads.")
         self.workers = [MaximaWorker(i, self.queries, self.mxcfg) for i in range(int(self.mxcfg['threads']))]
         for worker in self.workers:
@@ -136,7 +140,7 @@ class App:
         server_thread.start()
 
         # Just wait for someone to quit the application.
-        while self.stop == False:
+        while self.stopping == False:
             time.sleep(.5)
 
         # Quitting after tcp server shutdown
@@ -151,4 +155,15 @@ if __name__ == "__main__":
     app = App(config)
     signal.signal(signal.SIGINT, app.signal_handler)
     signal.signal(signal.SIGTERM, app.signal_handler)
-    app.run()
+    if args.daemon == 'start':
+        logger.info("Starting daemon as user %s" % config['Daemon']['user'])
+        app.start()
+    elif args.daemon == 'stop':
+        logger.info("Trying to stop daemon.")
+        app.stop()
+    elif args.daemon == 'restart':
+        logger.info("Trying to restart daemon.")
+        app.restart()
+    else:
+        logger.info("Starting application as user process.")
+        app.run()
