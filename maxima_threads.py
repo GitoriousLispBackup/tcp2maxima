@@ -67,10 +67,9 @@ class MaximaWorker(threading.Thread):
         except TimeoutException:
             logger.error("Maxima %s didn't start correctly!" % self.name)
 
-
         # Initializing maxima
-        logger.debug("Maxima " + str(name) + ": Writing init string to Maxima.")
-        self.process.stdin.write(bytes(self.cfg['init'], "UTF-8"))
+        logger.debug("Maxima " + str(name) + " init: " + self.cfg['init'])
+        self._send_to_maxima(self.cfg['init'])
         
         # Read until ready
         try:
@@ -110,7 +109,7 @@ class MaximaWorker(threading.Thread):
             
             # Start processing stuff with maxima
             logger.debug("Maxima " + self.name + " query: " + request)
-            self.process.stdin.write(bytes(request, "UTF-8"))
+            self._send_to_maxima(request)
 
             # Wait for a reply from maxima
             try:
@@ -150,6 +149,17 @@ class MaximaWorker(threading.Thread):
         # TODO: Initialize maxima properly
 
     
+    def _send_to_maxima(self, line):
+        """Send a line to maxima, making sure there is a line end char at the end"""
+
+        # Remove whitespaces at the end and append a line end character
+        line = line.rstrip()
+        line += "\n"
+        
+        # Send to stdin of Maxima and flush the cache
+        self.process.stdin.write(bytes(line, "UTF-8"))
+        self.process.stdin.flush()
+
     def _get_maxima_reply(self):
         """Read the output of Maxima"""
 
@@ -200,7 +210,7 @@ class MaximaWorker(threading.Thread):
     def _reset_maxima(self):
         # Reset and re-init the maxima process
         # TODO: Check what we really need here.
-        self.process.stdin.write(bytes(self.cfg['init'], "UTF-8"))
+        self._send_to_maxima(self.cfg['init'])
 
         # Read until ready
         try:
