@@ -39,22 +39,36 @@ class RequestHandler(socketserver.BaseRequestHandler):
         # We use a newline character as terminator for our input
         # This means every query needs to be terminated by a newline!
         query = ''
-        while query == '' or query[len(query)-1] != '\n':
-            query += str(self.request.recv(1024), 'UTF-8')
-        
-        # Controller object which is passed to the 
-        # TODO: It would be a lot easier to pass on the tcp client (request) itself
-        # But at the moment this feels cleaner.
-        controller = RequestController() 
-        self.callback(query, controller)
-        
-        # Wait for a Maxima worker thread to process our input 
-        controller.wait()
+        success = True
+        while query == '' or query[len(query) - 1] != '\n':
+            data = self.request.recv(1024)
+            
+            # Connection might be terminated early by client
+            if not data:
+                success = False
+                break
 
-        reply = controller.get_reply()
-        if reply:
-            self.request.sendall(bytes(controller.get_reply(), 'UTF-8'))
-        del controller
+            query += str(data, 'UTF-8')
+
+
+        # Only send something to maxima if we received a full request
+        if success:
+            # Controller object which is passed to the 
+            # TODO: It would be a lot easier to pass on the tcp client (request) itself
+            # But at the moment this feels cleaner.
+            controller = RequestController() 
+            self.callback(query, controller)
+            
+            # Wait for a Maxima worker thread to process our input 
+            controller.wait()
+
+            reply = controller.get_reply()
+            if reply:
+                self.request.sendall(bytes(controller.get_reply(), 'UTF-8'))
+            del controller
+            
+        self.request.close()
+
 
 class RequestController:
     """ RequestController are used to exchange data

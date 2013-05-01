@@ -1,8 +1,15 @@
-* TODO Write maxima input and output to the debug log
-* TODO Stop reading lines at (%ixxx)
+* TODO Configuration: Different init and reset strings
+* TODO Implement something like node.js forever module
+* TODO Log rotation
+* DONE Write maxima input and output to the debug log
+  CLOSED: [2013-04-24 Wed 11:31]
+* DONE Stop reading lines at (%ixxx)
+  CLOSED: [2013-04-24 Wed 11:31]
   Doesn't work with read_line() because we don't get a end of line character 
   after the prompt.
   I think we need non-blocking pipes as exlained here:
   http://stackoverflow.com/questions/8980050/persistent-python-subprocess
-* TODO enable daemonizing the service
-* TODO Write log to file
+* DONE enable daemonizing the service
+  CLOSED: [2013-04-24 Wed 11:31]
+* DONE Write log to file
+  CLOSED: [2013-04-24 Wed 11:31]
