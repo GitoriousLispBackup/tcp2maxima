@@ -20,7 +20,6 @@
 #
 
 import argparse
-import configparser
 import os
 import queue
 import signal
@@ -30,22 +29,12 @@ import time
 import logging
 
 from daemon import Daemon
+from config_loader import Config
 
 ##########################
 ### Load configuration ###
 ##########################
-config = configparser.ConfigParser()
-
-# Read the default configuration 
-# if this doesn't exist it's not good.
-config.readfp(open('default.cfg'))
-
-# read alternative configuration files
-alt_path = ['/etc/tcp2maxima.cfg']
-alt_path.append('/etc/tcp2maximarc')
-alt_path.append(os.path.expanduser('~/.tcp2maxima.cfg'))
-alt_path.append(os.path.expanduser('~/.tcp2maximarc'))
-config.read(alt_path)
+config = Config()
 
 ##########################
 ### Configure logger   ###
@@ -119,7 +108,7 @@ class App(Daemon):
         srvcfg = config['Server']
         self.host, self.port = srvcfg['address'], int(srvcfg['port'])
         # Create a simple request factory on the spot
-        mycallback = lambda query, controller: self.queries.put((query, controller))
+        mycallback = lambda controller: self.queries.put(controller)
         get_handler = lambda *args, **keys: RequestHandler(mycallback, *args, **keys)
         self.server = ThreadedTCPServer((self.host, self.port), get_handler)
 

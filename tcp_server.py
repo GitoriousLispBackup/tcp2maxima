@@ -24,6 +24,9 @@ import socketserver
 import threading
 import time
 
+from maxima_threads import RequestController
+
+
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
 
@@ -56,8 +59,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
             # Controller object which is passed to the 
             # TODO: It would be a lot easier to pass on the tcp client (request) itself
             # But at the moment this feels cleaner.
-            controller = RequestController() 
-            self.callback(query, controller)
+            controller = RequestController(query) 
+            self.callback(controller)
             
             # Wait for a Maxima worker thread to process our input 
             controller.wait()
@@ -69,29 +72,3 @@ class RequestHandler(socketserver.BaseRequestHandler):
             
         self.request.close()
 
-
-class RequestController:
-    """ RequestController are used to exchange data
-    between the TCP server and the maxima worker threads
-    """
-    def __init__(self):
-        # Event that is set by the worker as soon as
-        # the Maxima output is ready
-        self.ready = threading.Event()
-        # Here we store the maxima output.
-        self.reply = ''
-
-    def set_ready(self):
-        self.ready.set()
-
-    def is_ready(self):
-        return self.ready.isSet()
-
-    def wait(self):
-        self.ready.wait()
-
-    def set_reply(self, reply):
-        self.reply = reply
-
-    def get_reply(self):
-        return self.reply

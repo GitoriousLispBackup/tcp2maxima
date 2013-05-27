@@ -35,7 +35,6 @@ from requestfilter import RequestFilter
 # logger when I use this as a module
 logger = logging.getLogger("tcp2maxima")
 
-
 class MaximaWorker(threading.Thread):
     """ A thread that controls a maxima instance and sends queries to it. """
 
@@ -100,8 +99,9 @@ class MaximaWorker(threading.Thread):
             if self.stop.isSet():
                 break
 
-            request = query[0] # The sting we want to send to maxima
-            response = query[1] # The RequestController to send back the response
+            response = query # The RequestController to send back the response
+            request = response.request # The sting we want to send to maxima
+
             
             # Filter request with our request filter
             # TODO: What to do if the string isn't accepted?
@@ -218,6 +218,36 @@ class MaximaWorker(threading.Thread):
         except TimeoutException:
             logger.warn("Maxima %s failed to reset! Starting new instance." % self.name)
             self._restart_maxima()
+
+
+class RequestController():
+    """ RequestController are used to exchange data
+    between the TCP server and the maxima worker threads
+    """
+    def __init__(self, request):
+        # Event that is set by the worker as soon as
+        # the Maxima output is ready
+        self.ready = threading.Event()
+        # Here we store the maxima output.
+        self.reply = ''
+        # Store the actual request.
+        self.request = request
+        
+    def set_ready(self):
+        self.ready.set()
+
+    def is_ready(self):
+        return self.ready.isSet()
+
+    def wait(self):
+        self.ready.wait()
+
+    def set_reply(self, reply):
+        self.reply = reply
+
+    def get_reply(self):
+        return self.reply
+
             
 
 class TimeoutException(Exception):
