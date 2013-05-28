@@ -92,9 +92,9 @@ class App(Daemon):
     # to gracefully exit the threads.
     def signal_handler(self, signal, frame):
         global signal_count
-        
+        # TODO: The daemon module sends many SIGTERM 
         # Hitting ctrl-c multiple times forces to quit.
-        if signal_count > 0:
+        if signal_count > 5:
             logger.warn("User is in impatient, forcing exit.")
             sys.exit(1)
         signal_count +=1
