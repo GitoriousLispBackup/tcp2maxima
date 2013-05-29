@@ -67,14 +67,7 @@ class MaximaWorker(threading.Thread):
             logger.error("Maxima %s didn't start correctly!" % self.name)
 
         # Initializing maxima
-        logger.debug("Maxima " + str(name) + " init: " + self.cfg['init'])
-        self._send_to_maxima(self.cfg['init'])
-        
-        # Read until ready
-        try:
-            self._get_maxima_reply()
-        except TimeoutException:
-            logger.error("Maxima %s didn't initialize correctly!" % self.name)
+        self._init_maxima()
 
     def run(self):
         """ Starts the loop which pops elements off the queue. 
@@ -114,7 +107,10 @@ class MaximaWorker(threading.Thread):
             # Wait for a reply from maxima
             try:
                 reply = self._get_maxima_reply()
-                response.set_reply(reply)
+                if reply:
+                    response.set_reply(reply)
+                else:
+                    response.set_reply("No Output")
             except TimeoutException:
                 response.set_reply("Timeout")
                 self._restart_maxima()
@@ -146,7 +142,8 @@ class MaximaWorker(threading.Thread):
         self.process = sp.Popen([self.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
         fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
         logger.info("Maxima " + self.name + " started with a new Maxima process.")
-        # TODO: Initialize maxima properly
+        
+        self._init_maxima()
 
     
     def _send_to_maxima(self, line):
@@ -207,10 +204,22 @@ class MaximaWorker(threading.Thread):
         logger.debug("Maxima " + str(self.name) + " sent full reply.")
         return reply
 
+    def _init_maxima(self):
+        # Sends the init string to maxima
+        logger.debug("Maxima " + str(self.name) + " init: " + self.cfg['init'])
+        self._send_to_maxima(self.cfg['init'])
+        
+        # Read until ready
+        try:
+            self._get_maxima_reply()
+        except TimeoutException:
+            logger.error("Maxima %s didn't initialize correctly!" % self.name)
+
+
     def _reset_maxima(self):
         # Reset and re-init the maxima process
         # TODO: Check what we really need here.
-        self._send_to_maxima(self.cfg['init'])
+        self._send_to_maxima(self.cfg['reset'])
 
         # Read until ready
         try:
@@ -253,6 +262,8 @@ class RequestController():
 class TimeoutException(Exception):
     pass
 
+class NoOutputException(Exception):
+    pass
 
 
 

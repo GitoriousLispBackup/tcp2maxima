@@ -46,10 +46,14 @@ class Daemon:
                       
 
         def _set_security(self):
-            if os.geteuid() != 0:
-                sys.stderr.write("ERROR: Only root can start the daemon.")
-                sys.exit(1)
-            if self.user != 'root':
+            # This was a pretty crappy idea. Why should a normal user not be
+            # allowed to start the daemon??
+            #if os.geteuid() != 0:
+            #    sys.stderr.write("ERROR: Only root can start the daemon.")
+            #    sys.exit(1)
+
+            # Only root is able to swich the user under which the daemon runs.
+            if self.user != 'root' and os.geteuid() == 0:
                 uid = pwd.getpwnam(self.user).pw_uid
                 gid = pwd.getpwnam(self.user).pw_gid
                 
