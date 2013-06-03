@@ -35,6 +35,9 @@ from requestfilter import RequestFilter
 # logger when I use this as a module
 logger = logging.getLogger("tcp2maxima")
 
+ERROR_TIMEOUT = ";ERR;TIMEOUT"
+ERROR_OUTPUT =  ";ERR;NO_OUTPUT"
+
 class MaximaWorker(threading.Thread):
     """ A thread that controls a maxima instance and sends queries to it. """
 
@@ -110,9 +113,9 @@ class MaximaWorker(threading.Thread):
                 if reply:
                     response.set_reply(reply)
                 else:
-                    response.set_reply("No Output")
+                    response.set_reply(ERROR_OUTPUT)
             except TimeoutException:
-                response.set_reply("Timeout")
+                response.set_reply(ERROR_TIMEOUT)
                 self._restart_maxima()
 
             response.set_ready()
