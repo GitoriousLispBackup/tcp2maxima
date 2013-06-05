@@ -134,6 +134,7 @@ class MaximaWorker(threading.Thread):
         # self.process.terminate()
         # time.sleep(1)
         self.process.terminate()
+        self.process.wait()
         # we need to actively delete the process object to really kill the process
         del self.process 
         logger.info("Worker " + str(self.name) + " exits")
@@ -148,6 +149,7 @@ class MaximaWorker(threading.Thread):
         logger.info("Maxima " + self.name + " timed out and will be killed.")
         # TODO: This should go somewhere else.
         self.process.kill()
+        self.process.wait() # Wait for the return code
         del self.process
         self.process = sp.Popen([self.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
         fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
