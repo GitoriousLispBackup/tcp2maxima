@@ -53,12 +53,19 @@ class MaximaWorker(threading.Thread):
         self.queries = queries
         self.parser = rp.ReplyParser(name) # I'm not sure but I think it's not thread safe to have only one global parser...
         self.name = name # Name of the thread, usually a integer
-        self.options = [] # We don't want Maxima to report the version at startup
+        self.options = [] 
         self.stop = threading.Event() # A event we use to stop our maxima worker
         self.fltr = RequestFilter()
 
+        # Set up the list we use to start a maxima process. This depends on whether we
+        # have to change the nice value of the maxima processes
+        try:
+            command = ['nice', '-n %s' % self.cfg['nice'], self.cfg['path']] + self.options 
+        except KeyError:
+            command = [self.cfg['path']] + self.options 
+
         # Start maxima and set up the process
-        self.process = sp.Popen([self.cfg['path']] + self.options, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
+        self.process = sp.Popen(command, stdin=sp.PIPE, stdout=sp.PIPE, bufsize=0, close_fds=True)
         # Setting the stdout pipe to non-blocking mode
         # TBH I have no idea how this works, but it does what I want.
         fcntl.fcntl(self.process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)

@@ -37,15 +37,14 @@ class MaximaWorkerTests(unittest.TestCase):
         self.queries.put(controller)
         controller.wait()
         reply = controller.get_reply()
-        self.assertTrue(reply == 'Timeout')
+        self.assertTrue(reply == ';ERR;TIMEOUT')
 
     def testNoOutput(self):
         controller = RequestController(';')
         self.queries.put(controller)
         controller.wait()
         reply = controller.get_reply()
-        self.assertTrue(reply == 'No Output')
-
+        self.assertTrue(reply == ';ERR;NO_OUTPUT')
 
     def testBurst(self):
         controllers = []
@@ -59,6 +58,19 @@ class MaximaWorkerTests(unittest.TestCase):
             rep.wait()
             reply = rep.get_reply()
             self.assertTrue(reply == '8')
+
+    def testBurstTimeout(self):
+        controllers = []
+        for i in range(10):
+            controllers.append(RequestController('12^12^12^12;'))
+
+        for req in controllers:
+            self.queries.put(req)
+
+        for rep in controllers:
+            rep.wait()
+            reply = rep.get_reply()
+            self.assertTrue(reply == ';ERR;TIMEOUT')
 
 def main():
     unittest.main()
