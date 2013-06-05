@@ -1,0 +1,14 @@
+2013-06-05  Beni Keller  <beni@OpenBSD-ws00.lan>
+
+	* Version (0.1):
+	Merged version 0.1 to the master branch.
+
+	* maxima_threads.py (__init__):
+	Allow to configure the nice level of the maxima processes for shared hosts.
+
+	* maxima_threads.py (_restart_maxima):
+	Waiting for the return-code before deleting a maxima instance.
+
+	* tcp2maxima.py:
+	Added a __version__ attribute.
+
