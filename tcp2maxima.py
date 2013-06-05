@@ -26,6 +26,7 @@ import signal
 import threading
 import sys
 import time
+import traceback
 import logging
 
 from daemon import Daemon
@@ -43,8 +44,15 @@ config = Config()
 ##########################
 logging.basicConfig(level=config['General']['loglevel'])
 logger = logging.getLogger("tcp2maxima")
-# TODO: Loggin to file... 
-# handler = logging.FileHandler(config['Logging']['file'])
+
+# Make sure exceptions are written to the log, too.
+def exception_handler(ex_cls, ex, tb):
+    logger.critical('Uncaught exception:')
+    logger.critical(''.join(traceback.format_tb(tb)))
+    logger.critical('{0}: {1}'.format(ex_cls, ex))
+
+# Install exception handler
+sys.excepthook = exception_handler
 
 # Used to count SIGTERMS
 signal_count = 0
@@ -85,8 +93,10 @@ class App(Daemon):
         user = config['Daemon']['user']
         Daemon.__init__(self, config['Daemon']['pid_dir'], config['Daemon']['log_dir'], user=user)
         self.stopping = False # Use to stop application
+
         # Initialize Maxima supervisor
         self.mxcfg = config['Maxima']
+
         # Queue used to send request to the maxima instances
         self.queries = queue.Queue()      
 
@@ -94,6 +104,7 @@ class App(Daemon):
     # to gracefully exit the threads.
     def signal_handler(self, signal, frame):
         global signal_count
+
         # TODO: The daemon module sends many SIGTERM 
         # Hitting ctrl-c multiple times forces to quit.
         if signal_count > 5:
@@ -102,13 +113,20 @@ class App(Daemon):
         signal_count +=1
         logger.warn("Received SIGTERM or SIGINT, trying to exit.")
         self.stopping = True
+
+
+    def my_handler(type, value, tb):
+        logger.exception("Uncaught exception: {0}".format(str(value)))
+
         
     # Start the Server
     def run(self):
-        
+        """ Overridden method from the Daemon class. It's used internally
+        to start the daemon."""
         # Initialize tcp server
         srvcfg = config['Server']
         self.host, self.port = srvcfg['address'], int(srvcfg['port'])
+
         # Create a simple request factory on the spot
         mycallback = lambda controller: self.queries.put(controller)
         get_handler = lambda *args, **keys: RequestHandler(mycallback, *args, **keys)

@@ -23,10 +23,17 @@ import pwd
 import time
 import atexit
 import logging
+import logging.handlers
 from signal import SIGTERM
  
 # Get out logger
 logger = logging.getLogger("tcp2maxima")
+
+# The standard I/O file descriptors are redirected to /dev/null by default.
+if (hasattr(os, "devnull")):
+   REDIRECT_TO = os.devnull
+else:
+   REDIRECT_TO = "/dev/null"
 
 
 class Daemon:
@@ -35,23 +42,16 @@ class Daemon:
        
         Usage: subclass the Daemon class and override the run() method
         """
-        def __init__(self, piddir, logdir, stdin='/dev/null', user='root'):
-                self.stdin = stdin
+        def __init__(self, piddir, logdir, user='root'):
                 self.logdir = logdir
                 self.piddir = piddir
                 self.user = user
                 self.logfile = None # Will be set later
-                self.pidfile = None # Will be set later
+                self.pidfile = None # Will be set later  
                 self._set_security()
-                      
+
 
         def _set_security(self):
-            # This was a pretty crappy idea. Why should a normal user not be
-            # allowed to start the daemon??
-            #if os.geteuid() != 0:
-            #    sys.stderr.write("ERROR: Only root can start the daemon.")
-            #    sys.exit(1)
-
             # Only root is able to swich the user under which the daemon runs.
             if self.user != 'root' and os.geteuid() == 0:
                 uid = pwd.getpwnam(self.user).pw_uid
@@ -75,11 +75,10 @@ class Daemon:
                 logger.info("Switched to group %d" % gid)
                 os.setreuid(uid, uid)
                 logger.info("Switched to uid %d" % uid)
-                
-            self.logfile = os.path.join(self.logdir, 'tcp2maxima.log')
-            logger.info("Logging to %s" % self.logfile)
+            
             self.pidfile = os.path.join(self.piddir, 'tcp2maxima.pid')
-
+                        
+                
 
         def daemonize(self):
                 """
@@ -110,33 +109,59 @@ class Daemon:
                 except OSError as e:
                         sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
                         sys.exit(1)
+
+                # Since we don't have a stdout to log to open anymore
+                # we need to set the logger to log to a file.
+                # We use a WatchedFileHandler to be able to let logrotate 
+                # rotate the log.
+                self.logfile = os.path.join(self.logdir, 'tcp2maxima.log')
+                logger.info("Logging to %s" % self.logfile)
+                handler = logging.handlers.WatchedFileHandler(self.logfile)
+                logger.addHandler(handler)
        
-                # redirect standard file descriptors
-                sys.stdout.flush()
-                sys.stderr.flush()
-                si = open(self.stdin, 'r')
-                so = open(self.logfile, 'a+')
-                os.dup2(si.fileno(), sys.stdin.fileno())
-                os.dup2(so.fileno(), sys.stdout.fileno())
-                os.dup2(so.fileno(), sys.stderr.fileno())
-       
+                # Close open file descriptors. This is done the way described here:
+                # http://code.activestate.com/recipes/278731-creating-a-daemon-the-python-way/
+                # Don't blame me if it's wrong, I barely understand what I'm doing...
+                # logger.debug("Determine how many file descriptors should be closed.")
+                # import resource         # Resource usage information.
+                # maxfd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+                #if (maxfd == resource.RLIM_INFINITY):
+                #        maxfd = MAXFD
+  
+                # Iterate through and close all file descriptors.
+                #logger.debug("Try to close all file descriptors")
+                #for fd in range(0, maxfd):
+                #    try:
+                #            os.close(fd)
+                #    except OSError:
+                #            pass
+
+                # This call to open is guaranteed to return the lowest file descriptor,
+                # which will be 0 (stdin), since it was closed above.
+		
+		# TODO This doesn't work!!!!
+                logger.debug("Redirect std descriptors to /dev/null")
+                os.open(REDIRECT_TO, os.O_RDWR) # standard input (0)
+
+                # Duplicate standard input to standard output and standard error.
+                os.dup2(0, 1)                   # standard output (1)
+                os.dup2(0, 2)                   # standard error (2)
+
                 # write pidfile
                 atexit.register(self.delpid)
                 pid = str(os.getpid())
                 with open(self.pidfile,'w+') as pf:
                     pf.write("%s\n" % pid)
-       
+
         def delpid(self):
             os.remove(self.pidfile)
             if self.user != 'root':
                 os.rmdir(self.piddir)
-                
- 
+
         def start(self):
                 """
                 Start the daemon
                 """
-
                 # Check for a pidfile to see if the daemon already runs
                 try:
                         pf = open(self.pidfile,'r')
@@ -194,7 +219,7 @@ class Daemon:
  
         def run(self):
                 """
-                You should override this method when you subclass Daemon. It will be called after the process has been
-                daemonized by start() or restart().
+                This class is overridden in tcp2maxima and is used internally
+                to start the daemon.
                 """
                 pass
