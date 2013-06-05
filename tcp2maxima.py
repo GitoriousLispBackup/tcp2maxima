@@ -31,7 +31,7 @@ import logging
 from daemon import Daemon
 from config_loader import Config
 
-__version__ = '0.1'
+__version__ = '0.1.1'
 
 ##########################
 ### Load configuration ###
