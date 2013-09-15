@@ -193,8 +193,8 @@ class MaximaWorker(threading.Thread):
             self.process.stdout.flush()
             time.sleep(.1)
         if output:
-            logger.debug("Worker " + str(self.name) + " received: " +  str(output, "UTF-8"))
-            reply, ready = self.parser.parse(str(output, "UTF-8"))
+            logger.debug("Worker " + str(self.name) + " received: " +  str(output, "UTF-8", "replace"))
+            reply, ready = self.parser.parse(str(output, "UTF-8", "replace"))
 
         # Basically just repeat what we did above.
         while not ready:
@@ -207,8 +207,8 @@ class MaximaWorker(threading.Thread):
                 self.process.stdout.flush()
                 time.sleep(.1)
             if output:
-                logger.debug("Worker " + str(self.name) + " received: " + str(output, "UTF-8"))
-                reply_tmp, ready = self.parser.parse(str(output, "UTF-8"))
+                logger.debug("Worker " + str(self.name) + " received: " + str(output, "UTF-8", "replace"))
+                reply_tmp, ready = self.parser.parse(str(output, "UTF-8", "replace"))
                 if reply_tmp and reply:
                     reply += "\n" + reply_tmp
                 elif reply_tmp:
