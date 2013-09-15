@@ -116,36 +116,25 @@ class Daemon:
                 # rotate the log.
                 self.logfile = os.path.join(self.logdir, 'tcp2maxima.log')
                 logger.info("Logging to %s" % self.logfile)
+                
                 handler = logging.handlers.WatchedFileHandler(self.logfile)
+                formatter = logging.Formatter(fmt='%(asctime)s %(levelname)-8s %(message)s',
+                                              datefmt='%Y-%m-%d %H:%M:%S')
+                handler.setFormatter(formatter)
                 logger.addHandler(handler)
-       
-                # Close open file descriptors. This is done the way described here:
-                # http://code.activestate.com/recipes/278731-creating-a-daemon-the-python-way/
-                # Don't blame me if it's wrong, I barely understand what I'm doing...
-                # logger.debug("Determine how many file descriptors should be closed.")
-                # import resource         # Resource usage information.
-                # maxfd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
-                #if (maxfd == resource.RLIM_INFINITY):
-                #        maxfd = MAXFD
-  
-                # Iterate through and close all file descriptors.
-                #logger.debug("Try to close all file descriptors")
-                #for fd in range(0, maxfd):
-                #    try:
-                #            os.close(fd)
-                #    except OSError:
-                #            pass
+ 
+                # Stop logger from logging to console
+                logger.propagate = False
+
 
                 # This call to open is guaranteed to return the lowest file descriptor,
                 # which will be 0 (stdin), since it was closed above.
 		
 		# TODO This doesn't work!!!!
                 logger.debug("Redirect std descriptors to /dev/null")
-                os.open(REDIRECT_TO, os.O_RDWR) # standard input (0)
-
-                # Duplicate standard input to standard output and standard error.
-                os.dup2(0, 1)                   # standard output (1)
-                os.dup2(0, 2)                   # standard error (2)
+                sys.stdout = open(REDIRECT_TO, 'w')
+                sys.stderr = open(REDIRECT_TO, 'w')
+                sys.stdin = open(REDIRECT_TO, 'r')
 
                 # write pidfile
                 atexit.register(self.delpid)

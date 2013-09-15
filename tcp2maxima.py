@@ -42,7 +42,10 @@ config = Config()
 ##########################
 ### Configure logger   ###
 ##########################
-logging.basicConfig(level=config['General']['loglevel'])
+logging.basicConfig(level=config['General']['loglevel'],
+                    format='%(asctime)s %(levelname)-8s %(message)s',
+                    datefmt='%m-%d %H:%M')
+
 logger = logging.getLogger("tcp2maxima")
 
 # Make sure exceptions are written to the log, too.
@@ -71,7 +74,7 @@ parser.add_argument('-d', '--daemon',
                     dest='daemon',
                     choices=['start', 'stop', 'restart'],
                     help='start and stop the deamon process')
-parser.add_argument('--user', dest='user', default=False,
+parser.add_argument('-u', '--user', dest='user', default=False,
                     help="set user who owns the process (might not work unless run as root)")
 
 args = parser.parse_args()
