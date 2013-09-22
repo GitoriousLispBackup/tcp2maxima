@@ -190,7 +190,8 @@ class MaximaWorker(threading.Thread):
         while not output:
             _check_timeout()
             output = self.process.stdout.read()
-            self.process.stdout.flush()
+            # This seems wrong. Dont know why
+	    #self.process.stdout.flush()
             time.sleep(.1)
         if output:
             logger.debug("Worker " + str(self.name) + " received: " +  str(output, "UTF-8", "replace"))
