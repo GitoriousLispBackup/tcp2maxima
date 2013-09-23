@@ -177,6 +177,7 @@ class MaximaWorker(threading.Thread):
         start_stamp = time.time()        
         def _check_timeout():
             if time.time() - start_stamp > timeout:
+                self.process.stdout.flush()
                 raise TimeoutException
         # This method blocks if maxima doesn't return to a input
         # prompt. This is intended that we get a timeout if Maxima
@@ -189,10 +190,9 @@ class MaximaWorker(threading.Thread):
         logger.debug("Worker " + str(self.name) + " waits for Maxima reply.")
         while not output:
             _check_timeout()
-            output = self.process.stdout.read()
-            # This seems wrong. Dont know why
-	    #self.process.stdout.flush()
             time.sleep(.1)
+            self.process.stdout.flush()
+            output = self.process.stdout.read()
         if output:
             logger.debug("Worker " + str(self.name) + " received: " +  str(output, "UTF-8", "replace"))
             reply, ready = self.parser.parse(str(output, "UTF-8", "replace"))
@@ -204,8 +204,8 @@ class MaximaWorker(threading.Thread):
             logger.debug("Worker " + str(self.name) + " waiting for more data from Maxima.")
             while not output:
                 _check_timeout()
-                output = self.process.stdout.read()
                 self.process.stdout.flush()
+                output = self.process.stdout.read()
                 time.sleep(.1)
             if output:
                 logger.debug("Worker " + str(self.name) + " received: " + str(output, "UTF-8", "replace"))
