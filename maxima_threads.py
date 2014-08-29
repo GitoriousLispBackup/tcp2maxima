@@ -177,6 +177,9 @@ class MaximaWorker(threading.Thread):
         start_stamp = time.time()        
         def _check_timeout():
             if time.time() - start_stamp > timeout:
+                # Make sure the buffer is empty before we do anything
+		# like killing a thread
+		self.process.stdout.read()
                 self.process.stdout.flush()
                 raise TimeoutException
         # This method blocks if maxima doesn't return to a input
@@ -215,6 +218,9 @@ class MaximaWorker(threading.Thread):
                 elif reply_tmp:
                     reply = reply_tmp
         logger.debug("Maxima " + str(self.name) + " sent full reply.")
+	# Just in case something is stuck in the buffer, we make sure it's empty
+	self.process.stdout.read()
+        self.process.stdout.flush()
         return reply
 
     def _init_maxima(self):
